@@ -10,3 +10,4 @@ edumaster-backend/.tmp/
 edumaster-backend/build/
 *.log
 *.env
+dump.sql

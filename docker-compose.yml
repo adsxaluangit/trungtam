@@ -1,0 +1,102 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: trungtam_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DATABASE_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-123456}
+      POSTGRES_DB: ${DATABASE_NAME:-trungtam}
+    ports:
+      - "5438:5432"
+    command: >
+      postgres
+      -c shared_buffers=2GB
+      -c work_mem=64MB
+      -c maintenance_work_mem=512MB
+      -c effective_cache_size=4GB
+      -c max_connections=200
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=64MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+    volumes:
+      - trungtam_db_data:/var/lib/postgresql/data
+    networks:
+      - trungtam_net
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: trungtam_backend
+    restart: always
+    environment:
+      DATABASE_CLIENT: postgres
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      DATABASE_NAME: ${DATABASE_NAME:-trungtam}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-postgres}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-123456}
+      DATABASE_SSL: "false"
+      DATABASE_POOL_MIN: 5
+      DATABASE_POOL_MAX: 20
+      APP_KEYS: "toBeModified1,toBeModified2"
+      API_TOKEN_SALT: "toBeModified3"
+      ADMIN_JWT_SECRET: "toBeModified4"
+      TRANSFER_TOKEN_SALT: "toBeModified5"
+      JWT_SECRET: "toBeModified6"
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 1337
+    ports:
+      - "1341:1337"
+    depends_on:
+      - db
+    networks:
+      - trungtam_net
+    volumes:
+      - ./edumaster-backend/public/uploads:/opt/app/public/uploads
+      - ./edumaster-backend/database:/opt/app/database
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: trungtam_frontend
+    restart: always
+    ports:
+      - "85:80"
+    depends_on:
+      - backend
+    networks:
+      - trungtam_net
+
+  backup:
+    image: postgres:17-alpine
+    container_name: trungtam_backup
+    restart: always
+    environment:
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      DATABASE_NAME: ${DATABASE_NAME:-trungtam}
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-postgres}
+      PGPASSWORD: ${DATABASE_PASSWORD:-123456}
+    volumes:
+      - ./scripts/backup.sh:/backup.sh:ro
+      - ./scripts/entrypoint-backup.sh:/entrypoint-backup.sh:ro
+      - ./edumaster-backend/database/auto-backups:/backups
+    entrypoint: ["sh", "/entrypoint-backup.sh"]
+    depends_on:
+      - db
+    networks:
+      - trungtam_net
+
+volumes:
+  trungtam_db_data:
+    name: trungtam_db_data
+
+networks:
+  trungtam_net:
+    driver: bridge

@@ -1,0 +1,20 @@
+/* Font Inter được bundle cùng app qua @fontsource/inter - không cần CDN */
+
+body {
+  margin: 0;
+  /* Inter hỗ trợ tiếng Việt, fallback sang font hệ thống có Unicode */
+  font-family: 'Inter', 'Segoe UI', 'Arial Unicode MS', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f8fafc;
+}
+
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

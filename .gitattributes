@@ -1,0 +1,6 @@
+# Đảm bảo shell scripts luôn dùng LF (Linux line endings)
+# Tránh lỗi CRLF khi chạy trong Docker container
+*.sh text eol=lf
+
+# File text thông thường - tự động theo OS
+* text=auto

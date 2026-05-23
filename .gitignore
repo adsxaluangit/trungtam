@@ -1,0 +1,12 @@
+node_modules/
+.vscode/
+edumaster-backend/database/backup_*.sql
+edumaster-backend/database/auto-backups/
+edumaster-backend/database/perf_analysis.sql
+edumaster-backend/public/uploads/
+edumaster-frontend/node_modules/
+edumaster-frontend/dist/
+edumaster-backend/.tmp/
+edumaster-backend/build/
+*.log
+*.env

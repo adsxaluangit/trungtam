@@ -1,0 +1,35 @@
+{
+    "kind": "collectionType",
+    "collectionName": "student_documents",
+    "info": {
+        "singularName": "student-document",
+        "pluralName": "student-documents",
+        "displayName": "Hồ sơ học viên",
+        "description": "Student Documents table"
+    },
+    "options": {
+        "draftAndPublish": false
+    },
+    "pluginOptions": {},
+    "attributes": {
+        "name": {
+            "type": "string"
+        },
+        "url": {
+            "type": "text"
+        },
+        "date": {
+            "type": "string"
+        },
+        "type": {
+            "type": "string"
+        },
+        "student": {
+            "type": "relation",
+            "relation": "manyToOne",
+            "target": "api::student.student",
+            "inversedBy": "documents",
+            "onDelete": "CASCADE"
+        }
+    }
+}

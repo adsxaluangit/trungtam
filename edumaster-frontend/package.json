@@ -1,0 +1,32 @@
+{
+    "name": "edumaster-pro-frontend",
+    "private": true,
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build",
+        "preview": "vite preview"
+    },
+    "dependencies": {
+        "@fontsource/inter": "^5.1.0",
+        "@types/jszip": "^3.4.0",
+        "exceljs": "^4.4.0",
+        "jszip": "^3.10.1",
+        "lucide-react": "^0.562.0",
+        "qs": "^6.15.0",
+        "react": "18.0.0",
+        "react-dom": "18.0.0",
+        "react-router-dom": "^6.28.0",
+        "recharts": "^3.6.0",
+        "styled-components": "^6.0.0",
+        "xlsx": "^0.18.5"
+    },
+    "devDependencies": {
+        "@types/node": "^22.14.0",
+        "@vitejs/plugin-basic-ssl": "^2.1.4",
+        "@vitejs/plugin-react": "^5.0.0",
+        "typescript": "~5.8.2",
+        "vite": "^6.2.0"
+    }
+}

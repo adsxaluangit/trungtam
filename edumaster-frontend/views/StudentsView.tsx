@@ -45,6 +45,8 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
   const [uploadingDocName, setUploadingDocName] = useState<string | null>(null);
   const [viewingDocsStudentId, setViewingDocsStudentId] = useState<string | null>(null);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+  const [sharedDocs, setSharedDocs] = useState<any[]>([]);
+  const [sharedDocsLoading, setSharedDocsLoading] = useState(false);
   const docInputRef = useRef<HTMLInputElement>(null);
 
   // --- Duplicate guard state ---
@@ -627,27 +629,10 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
         } else {
           const newStudent = await createCategory(COLLECTIONS.STUDENTS, payload);
 
-          // --- Copy documents from source student ("+ Đăng ký lớp mới" flow) ---
-          if (prefilledStudentDocs.length > 0 && newStudent) {
-            const newStudentId = newStudent.id || newStudent.documentId;
-            if (newStudentId) {
-              for (const doc of prefilledStudentDocs) {
-                if (doc.url && doc.name) {
-                  try {
-                    await createCategory(COLLECTIONS.STUDENT_DOCUMENTS, {
-                      name: doc.name,
-                      url: doc.url,
-                      type: doc.type || 'application/pdf',
-                      student: newStudentId,
-                    });
-                  } catch (docErr) {
-                    console.warn('Failed to copy document:', doc.name, docErr);
-                  }
-                }
-              }
-            }
-            setPrefilledStudentDocs([]);
-          }
+          // --- KHÔNG copy documents khi đăng ký lớp mới ---
+          // Tài liệu được chia sẻ qua số CCCD (id_number), không gắn riêng với từng student record.
+          // Khi xem tài liệu, frontend sẽ load theo CCCD để hiển thị chung cho mọi lớp.
+          setPrefilledStudentDocs([]);
           // -------------------------------------------------------------------
         }
         alert(editingId ? 'Cập nhật thành công!' : 'Thêm mới thành công!');
@@ -712,10 +697,20 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
             type: file.type,
             date: new Date().toLocaleDateString('vi-VN'),
             url: finalDocUrl,
-            student: studentObj?.strapiId || studentId // Use numeric ID for relation
+            student: studentObj?.strapiId || studentId, // Use numeric ID for relation
+            id_number: (studentObj as any)?.idNumber || '' // CCCD — dùng để chia sẻ docs qua nhiều lớp
           };
 
-          const savedDoc = await createCategory(COLLECTIONS.STUDENT_DOCUMENTS, payload);
+          // Gọi API replace-or-create: nếu đã có doc cùng tên + CCCD → cập nhật URL
+          // Tránh tạo file thừa trên ổ đĩa
+          const token = localStorage.getItem('jwt_token') || '';
+          const replaceRes = await fetch('/api/student-documents/replace-or-create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify(payload)
+          });
+          const replaceJson = await replaceRes.json();
+          const savedDoc = replaceJson?.data || null;
 
           if (savedDoc) {
             setStudents(prev => prev.map(s => {
@@ -1438,23 +1433,60 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
     </div >
   );
 
+  // Bước 5: Load tài liệu theo CCCD — chia sẻ chung cho mọi lớp của cùng 1 người
+  const openDocsModal = async (studentId: string) => {
+    setViewingDocsStudentId(studentId);
+    const student = students.find(s => s.id === studentId);
+    const idNumber = (student as any)?.idNumber;
+    if (idNumber) {
+      setSharedDocsLoading(true);
+      try {
+        const res = await fetch(`/api/student-documents/by-id-number?id_number=${encodeURIComponent(idNumber)}`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('jwt_token') || ''}` }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          setSharedDocs(json.data || []);
+        } else {
+          // Fallback về docs gắn với student record này
+          setSharedDocs(student?.documents || []);
+        }
+      } catch {
+        setSharedDocs(student?.documents || []);
+      } finally {
+        setSharedDocsLoading(false);
+      }
+    } else {
+      // Không có CCCD → dùng docs gốc
+      setSharedDocs(student?.documents || []);
+    }
+  };
+
   const renderDocsModal = () => {
     const student = students.find(s => s.id === viewingDocsStudentId);
-    if (!student || !student.documents) return null;
+    if (!student) return null;
+    const docsToShow = sharedDocs;
 
     return (
       <div className="fixed inset-0 bg-black/50 z-[110] flex items-center justify-center p-4 backdrop-blur-sm">
         <div className="bg-white w-full max-w-md rounded-lg shadow-xl overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200">
           <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex justify-between items-center">
-            <h3 className="font-bold text-slate-700 text-sm">Hồ sơ đính kèm ({student.documents.length})</h3>
-            <button onClick={() => setViewingDocsStudentId(null)} className="text-slate-400 hover:text-red-500"><X size={18} /></button>
+            <div>
+              <h3 className="font-bold text-slate-700 text-sm">Hồ sơ đính kèm ({sharedDocsLoading ? '...' : docsToShow.length})</h3>
+              {(student as any)?.idNumber && (
+                <p className="text-[10px] text-slate-400 mt-0.5">CCCD: {(student as any).idNumber} — hiển thị chung mọi lớp</p>
+              )}
+            </div>
+            <button onClick={() => { setViewingDocsStudentId(null); setSharedDocs([]); }} className="text-slate-400 hover:text-red-500"><X size={18} /></button>
           </div>
           <div className="max-h-[60vh] overflow-y-auto p-2">
-            {student.documents.length === 0 ? (
+            {sharedDocsLoading ? (
+              <p className="text-center text-slate-400 py-8 text-xs animate-pulse">Đang tải hồ sơ...</p>
+            ) : docsToShow.length === 0 ? (
               <p className="text-center text-slate-400 py-8 text-xs italic">Chưa có hồ sơ nào</p>
             ) : (
               <div className="space-y-2">
-                {student.documents.map((doc, idx) => (
+                {docsToShow.map((doc, idx) => (
                   <div key={idx} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-md hover:border-blue-200 hover:shadow-sm group transition-all">
                     <div className="flex items-center gap-3 overflow-hidden">
                       <div className="w-8 h-8 rounded bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
@@ -1478,7 +1510,7 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
             )}
           </div>
           <div className="bg-slate-50 border-t border-slate-200 p-3 flex justify-end">
-            <button onClick={() => setViewingDocsStudentId(null)} className="px-4 py-1.5 bg-white border border-slate-300 rounded text-xs font-bold text-slate-600 hover:bg-slate-100">Đóng</button>
+            <button onClick={() => { setViewingDocsStudentId(null); setSharedDocs([]); }} className="px-4 py-1.5 bg-white border border-slate-300 rounded text-xs font-bold text-slate-600 hover:bg-slate-100">Đóng</button>
           </div>
         </div>
       </div>
@@ -1596,11 +1628,13 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
                     <button onClick={(e) => handleTriggerUpload(s.id, e)} className="text-slate-400 hover:text-blue-600 transition-colors bg-slate-50 p-1.5 rounded-full hover:bg-blue-50" title="Tải hồ sơ lên">
                       <Upload size={14} className="mx-auto" />
                     </button>
-                    {s.documents && s.documents.length > 0 && (
-                      <span className="text-[10px] bg-green-100 text-green-700 px-1.5 rounded-full font-bold cursor-pointer hover:underline" onClick={(e) => { e.stopPropagation(); setViewingDocsStudentId(s.id); }}>
-                        {s.documents.length} file
-                      </span>
-                    )}
+                    <span
+                      className="text-[10px] bg-blue-50 text-blue-600 px-1.5 rounded-full font-bold cursor-pointer hover:underline hover:bg-blue-100 transition-colors"
+                      onClick={(e) => { e.stopPropagation(); openDocsModal(s.id); }}
+                      title="Xem hồ sơ đính kèm"
+                    >
+                      {s.documents && s.documents.length > 0 ? `${s.documents.length} file` : 'Xem HS'}
+                    </span>
                   </div>
                 </td>
                 <td className="border-r px-3 py-1.5 text-center">

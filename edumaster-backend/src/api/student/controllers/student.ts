@@ -58,9 +58,11 @@ export default factories.createCoreController('api::student.student', ({ strapi 
   // Returns paginated students NOT in any OPENING or RECOGNITION decision
   async findUnassigned(ctx) {
     try {
-      const { page = 1, pageSize = 50, filters = {}, populate = '*' } = ctx.query;
-      const pageNum = parseInt(page as string, 10);
-      const limit = parseInt(pageSize as string, 10);
+      const paginationQuery = (ctx.query as any).pagination || {};
+      const pageNum = parseInt((paginationQuery.page ?? (ctx.query as any).page ?? 1) as string, 10);
+      const limit = parseInt((paginationQuery.pageSize ?? (ctx.query as any).pageSize ?? 50) as string, 10);
+      const filters = (ctx.query as any).filters || {};
+      const populate = (ctx.query as any).populate || '*';
       const offset = (pageNum - 1) * limit;
 
       const knex = strapi.db.connection;

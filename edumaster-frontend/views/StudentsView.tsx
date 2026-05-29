@@ -29,7 +29,7 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
 
   // Server-Side Config
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize] = useState(50);
+  const [pageSize] = useState(20);
   const [totalStudents, setTotalStudents] = useState(0);
   const [searchTermServer, setSearchTermServer] = useState('');
 

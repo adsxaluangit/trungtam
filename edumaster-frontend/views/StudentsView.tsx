@@ -29,7 +29,7 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
 
   // Server-Side Config
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize] = useState(20);
+  const [pageSize] = useState(50);
   const [totalStudents, setTotalStudents] = useState(0);
   const [searchTermServer, setSearchTermServer] = useState('');
 
@@ -55,6 +55,9 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
 
   // --- Docs to copy from source student when using "+" button ---
   const [prefilledStudentDocs, setPrefilledStudentDocs] = useState<any[]>([]);
+
+  // --- Docs fetch theo CCCD khi nhập form mới ---
+  const [prefillDocs, setPrefillDocs] = useState<{front: string|null, back: string|null}>({front: null, back: null});
 
   const [formData, setFormData] = useState({
     studentCode: '',
@@ -344,7 +347,7 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
     }
   };
 
-  // Handle ID Number change (syncs with studentCode)
+  // Xóa prefillDocs khi CCCD thay đổi
   const handleIdNumberChange = (val: string) => {
     const cleanedVal = val.replace(/\D/g, '');
     if (cleanedVal.length <= 12) {
@@ -353,13 +356,73 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
         idNumber: cleanedVal,
         studentCode: cleanedVal
       });
-      // Clear warning when user changes CCCD
       setDuplicateWarning(null);
+      if (!editingId) {
+        setStudentPhoto(null);
+        setPrefillDocs({ front: null, back: null }); // Xóa docs cũ khi đổi CCCD
+      }
     }
+  };
+
+  // Hàm lõi: lấy ảnh 3x4 mới nhất + CCCD mặt trước/sau theo số CCCD
+  // Dùng chung cho cả tạo mới và edit (khi record thiếu ảnh)
+  const fetchPhotoAndDocsByIdNumber = async (idNumber: string, currentPhoto: string | null) => {
+    if (!idNumber || idNumber.length < 9) return;
+    try {
+      const token = localStorage.getItem('jwt_token') || '';
+
+      // 1. Lấy ảnh 3x4 mới nhất theo CCCD (chỉ nếu chưa có ảnh)
+      if (!currentPhoto) {
+        // Chỉ tìm ảnh từ records tạo trong 5 năm gần nhất
+        const fiveYearsAgo = new Date();
+        fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5);
+        const photoRes = await fetch(
+          `/api/students?filters[id_number][$eq]=${idNumber}&filters[createdAt][$gte]=${fiveYearsAgo.toISOString()}&fields[0]=photo&sort=createdAt:desc&pagination[limit]=20&publicationState=preview`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (photoRes.ok) {
+          const json = await photoRes.json();
+          // Lấy ảnh có giá trị (khác null/rỗng) đầu tiên trong tất cả records cùng CCCD
+          const allRecords: any[] = json?.data || [];
+          const latestPhoto = allRecords
+            .map((r: any) => r.photo || r.attributes?.photo)
+            .find((p: any) => !!p) || null;
+          if (latestPhoto) setStudentPhoto(latestPhoto);
+        }
+      }
+
+      // 2. Lấy CCCD mặt trước/sau gần nhất
+      const docsRes = await fetch(
+        `/api/student-documents/by-id-number?id_number=${encodeURIComponent(idNumber)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (docsRes.ok) {
+        const docsJson = await docsRes.json();
+        const docs: any[] = docsJson?.data || [];
+        const front = docs.find((d: any) => d.name === 'CCCD Mặt trước')?.url || null;
+        const back  = docs.find((d: any) => d.name === 'CCCD Mặt sau')?.url  || null;
+        setPrefillDocs({ front, back });
+      }
+    } catch (_) {
+      // Bỏ qua lỗi — không bắt buộc phải có
+    }
+  };
+
+  // Tự động lấy ảnh 3x4 Mới nhất + file CCCD đính kèm theo CCCD khi nhập form mới
+  // → Học viên đăng ký lớp mới không cần upload lại ảnh lẫn hồ sơ
+  // → Record cũ / quyết định cũ KHÔNG bị ảnh hưởng
+  const fetchLatestPhotoByIdNumber = async (idNumber: string) => {
+    if (!idNumber || idNumber.length < 9 || editingId) return; // Chỉ áp dụng khi tạo mới
+    if (studentPhoto) return; // Đã có ảnh (từ prefilledStudent) thì giữ nguyên
+    await fetchPhotoAndDocsByIdNumber(idNumber, studentPhoto);
   };
 
   // Real-time check on CCCD blur
   const handleIdNumberBlur = () => {
+    // Tự động load ảnh gần nhất khi CCCD đủ 12 số và đang tạo mới
+    if (formData.idNumber && formData.idNumber.length === 12 && !editingId) {
+      fetchLatestPhotoByIdNumber(formData.idNumber);
+    }
     if (formData.idNumber && formData.classId) {
       // classId in formData = numeric strapiId OR documentId from existing student
       // Find class by matching either strapiId or documentId
@@ -451,6 +514,11 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
     });
     setStudentPhoto(student.photo || null);
     setIsFormOpen(true);
+
+    // Nếu record thiếu ảnh → tự động lấy ảnh mới nhất từ CCCD (các lớp học khác cùng người)
+    if (!student.photo && student.idNumber && student.idNumber.length >= 9) {
+      fetchPhotoAndDocsByIdNumber(student.idNumber, null);
+    }
   };
 
   const handleDobChange = (dob: string) => {
@@ -1350,38 +1418,45 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
                   }
                 }} />
 
-                {/* CCCD SECTION IN EDIT FORM */}
+                {/* CCCD SECTION IN FORM (cả tạo mới lẫn chỉnh sửa) */}
                 <div className="mt-6 w-full border-t border-slate-100 pt-4">
                   <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-3">Căn cước công dân (Hồ sơ)</span>
+                  {!editingId && (prefillDocs.front || prefillDocs.back) && (
+                    <div className="mb-2 px-2 py-1.5 bg-green-50 border border-green-200 rounded text-[10px] text-green-700 flex items-center gap-1">
+                      <CheckCircle2 size={11} /> Đã tìm thấy CCCD cũ — hiển thị bên dưới. Nhấn "Ảnh mới" nếu muốn cập nhật.
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-3">
                     {/* Front */}
                     <div className="space-y-1">
                       <div className="flex justify-between items-center">
                         <span className="text-[10px] text-slate-400 font-medium">Mặt trước:</span>
-                        {editingId && (
-                           <button 
-                             onClick={(e) => handleTriggerUpload(editingId, e, 'CCCD Mặt trước')}
-                             className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-200 hover:bg-blue-100 transition-colors flex items-center gap-1"
-                           >
-                             <Upload size={10} /> Tải lên
-                           </button>
-                        )}
+                        <button
+                          onClick={(e) => handleTriggerUpload(editingId || 'new', e, 'CCCD Mặt trước')}
+                          className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-200 hover:bg-blue-100 transition-colors flex items-center gap-1"
+                        >
+                          <Upload size={10} /> {!editingId && prefillDocs.front ? 'Ảnh mới' : 'Tải lên'}
+                        </button>
                       </div>
-                      <div 
+                      <div
                         className="aspect-[1.58/1] bg-slate-100 rounded border border-slate-200 overflow-hidden cursor-pointer hover:border-blue-300 transition-all relative group"
                         onClick={() => {
-                          const doc = editingId ? students.find(s => s.id === editingId)?.documents?.find(d => d.name === 'CCCD Mặt trước') : null;
-                          if (doc) setZoomedImage(doc.url);
+                          const url = editingId
+                            ? students.find(s => s.id === editingId)?.documents?.find(d => d.name === 'CCCD Mặt trước')?.url
+                            : prefillDocs.front;
+                          if (url) setZoomedImage(url);
                         }}
                       >
-                        {editingId && students.find(s => s.id === editingId)?.documents?.find(d => d.name === 'CCCD Mặt trước') ? (
-                          <img 
-                            src={students.find(s => s.id === editingId)?.documents?.find(d => d.name === 'CCCD Mặt trước')?.url} 
-                            className="w-full h-full object-cover" 
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-slate-300 italic text-[10px] bg-white">Chưa có ảnh</div>
-                        )}
+                        {(() => {
+                          const url = editingId
+                            ? students.find(s => s.id === editingId)?.documents?.find(d => d.name === 'CCCD Mặt trước')?.url
+                            : prefillDocs.front;
+                          return url ? (
+                            <img src={url} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-300 italic text-[10px] bg-white">Chưa có ảnh</div>
+                          );
+                        })()}
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                           <Search size={16} className="text-white" />
                         </div>
@@ -1391,30 +1466,32 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
                     <div className="space-y-1">
                       <div className="flex justify-between items-center">
                         <span className="text-[10px] text-slate-400 font-medium">Mặt sau:</span>
-                        {editingId && (
-                           <button 
-                             onClick={(e) => handleTriggerUpload(editingId, e, 'CCCD Mặt sau')}
-                             className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-200 hover:bg-blue-100 transition-colors flex items-center gap-1"
-                           >
-                             <Upload size={10} /> Tải lên
-                           </button>
-                        )}
+                        <button
+                          onClick={(e) => handleTriggerUpload(editingId || 'new', e, 'CCCD Mặt sau')}
+                          className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-200 hover:bg-blue-100 transition-colors flex items-center gap-1"
+                        >
+                          <Upload size={10} /> {!editingId && prefillDocs.back ? 'Ảnh mới' : 'Tải lên'}
+                        </button>
                       </div>
-                      <div 
+                      <div
                         className="aspect-[1.58/1] bg-slate-100 rounded border border-slate-200 overflow-hidden cursor-pointer hover:border-blue-300 transition-all relative group"
                         onClick={() => {
-                          const doc = editingId ? students.find(s => s.id === editingId)?.documents?.find(d => d.name === 'CCCD Mặt sau') : null;
-                          if (doc) setZoomedImage(doc.url);
+                          const url = editingId
+                            ? students.find(s => s.id === editingId)?.documents?.find(d => d.name === 'CCCD Mặt sau')?.url
+                            : prefillDocs.back;
+                          if (url) setZoomedImage(url);
                         }}
                       >
-                        {editingId && students.find(s => s.id === editingId)?.documents?.find(d => d.name === 'CCCD Mặt sau') ? (
-                          <img 
-                            src={students.find(s => s.id === editingId)?.documents?.find(d => d.name === 'CCCD Mặt sau')?.url} 
-                            className="w-full h-full object-cover" 
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-slate-300 italic text-[10px] bg-white">Chưa có ảnh</div>
-                        )}
+                        {(() => {
+                          const url = editingId
+                            ? students.find(s => s.id === editingId)?.documents?.find(d => d.name === 'CCCD Mặt sau')?.url
+                            : prefillDocs.back;
+                          return url ? (
+                            <img src={url} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-300 italic text-[10px] bg-white">Chưa có ảnh</div>
+                          );
+                        })()}
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                           <Search size={16} className="text-white" />
                         </div>

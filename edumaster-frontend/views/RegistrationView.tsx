@@ -156,9 +156,9 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
         const checkExisting = async (cccd: string) => {
             setIsCheckingId(true);
             try {
-                const oneYearAgo = new Date();
-                oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-                const filters = `filters[id_number][$eq]=${cccd}&filters[createdAt][$gte]=${oneYearAgo.toISOString()}&sort=createdAt:desc`;
+                const fiveYearsAgo = new Date();
+                fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5);
+                const filters = `filters[id_number][$eq]=${cccd}&filters[createdAt][$gte]=${fiveYearsAgo.toISOString()}&sort=createdAt:desc`;
                 // customParams to populate documents
                 const endpoint = `${COLLECTIONS.STUDENTS}?populate=*&pagination[pageSize]=1&${filters}`;
                 const data = await fetchCategory(endpoint);
@@ -377,44 +377,18 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
                     </div>
 
                     <form onSubmit={handleSubmit} className="p-8">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                            {/* Photo Upload Section */}
-                            <div className="md:col-span-1 flex flex-col items-center">
-                                <div className="w-full aspect-[3/4] max-w-[180px] bg-slate-100 rounded-lg border-2 border-dashed border-slate-300 flex flex-col items-center justify-center relative overflow-hidden group cursor-pointer hover:border-blue-400 transition-colors"
-                                    onClick={() => fileInputRef.current?.click()}>
+                        {/* Input ẩn — giữ để logic auto-fill ảnh từ CCCD vẫn hoạt động */}
+                        <input type="file" accept="image/*" ref={fileInputRef} hidden onChange={async e => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                                const compressed = await compressImage(file, 600);
+                                setStudentPhoto(compressed);
+                            }
+                        }} />
 
-                                    {studentPhoto ? (
-                                        <img src={studentPhoto} className="w-full h-full object-cover" />
-                                    ) : (
-                                        <div className="text-center p-4">
-                                            <Upload size={32} className="mx-auto text-slate-300 mb-2" />
-                                            <span className="text-xs text-slate-400 font-bold uppercase">Tải ảnh 3x4</span>
-                                        </div>
-                                    )}
-
-                                    {studentPhoto && (
-                                        <div className="absolute top-2 right-2">
-                                            <button type="button" onClick={(e) => { e.stopPropagation(); setStudentPhoto(null); }} className="p-1.5 bg-white/80 rounded-full text-red-500 hover:bg-white shadow-sm"><X size={14} /></button>
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="mt-4 w-full flex flex-col gap-2 max-w-[180px]">
-                                    <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full py-2 bg-blue-600 text-white text-xs font-bold rounded shadow hover:bg-blue-700 flex items-center justify-center gap-2 transition-colors">
-                                        <Upload size={14} /> Tải ảnh thẻ 3x4
-                                    </button>
-                                    <input type="file" accept="image/*" ref={fileInputRef} hidden onChange={async e => {
-                                        const file = e.target.files?.[0];
-                                        if (file) {
-                                            const compressed = await compressImage(file, 600);
-                                            setStudentPhoto(compressed);
-                                        }
-                                    }} />
-                                </div>
-                            </div>
-
-                            {/* Form Fields */}
-                            <div className="md:col-span-2 space-y-3">
+                        <div className="grid grid-cols-1 gap-8">
+                            {/* Form Fields — full width vì đã ẩn cột ảnh */}
+                            <div className="col-span-1 space-y-3">
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 mb-1">Họ và tên thí sinh <span className="text-red-500">*</span></label>
                                     <input

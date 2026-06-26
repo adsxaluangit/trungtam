@@ -19,6 +19,7 @@ interface DecisionDetail {
   years: string;
   hometown: string;
   address: string;
+  phone: string;
   notes: string;
   documents?: { id: string; name: string; url: string; date: string; type: string }[];
   photo?: string;
@@ -369,7 +370,7 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
   const loadDecisions = async () => {
     // We need deep populate to get students' documents and photo within the decision
     // Note: Using explicit relation population (true) instead of * to avoid validation errors with deep nested relations
-    const data = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?sort[0]=signed_date:desc&sort[1]=id:desc&populate[school_class]=true&populate[related_decision]=true&populate[students][populate][documents][fields][0]=name&populate[students][populate][documents][fields][1]=url&populate[students][populate][documents][fields][2]=type&populate[students][fields][0]=full_name&populate[students][fields][1]=dob&populate[students][fields][2]=gender&populate[students][fields][3]=card_number&populate[students][fields][4]=id_number&populate[students][fields][5]=student_code&populate[students][fields][6]=pob&populate[students][fields][7]=photo&populate[students][fields][8]=address`);
+    const data = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?sort[0]=signed_date:desc&sort[1]=id:desc&populate[school_class]=true&populate[related_decision]=true&populate[students][populate][documents][fields][0]=name&populate[students][populate][documents][fields][1]=url&populate[students][populate][documents][fields][2]=type&populate[students][fields][0]=full_name&populate[students][fields][1]=dob&populate[students][fields][2]=gender&populate[students][fields][3]=card_number&populate[students][fields][4]=id_number&populate[students][fields][5]=student_code&populate[students][fields][6]=pob&populate[students][fields][7]=photo&populate[students][fields][8]=address&populate[students][fields][9]=notes&populate[students][fields][10]=phone`);
     if (data) {
       const mapped = data.map((d: any, index: number) => {
         const classData = d.school_class?.data || d.school_class;
@@ -400,9 +401,10 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
               studentCode: item.student_code || item.studentCode || item.code || '',
               hometown: item.pob || '',
               address: item.address || '',
+              phone: item.phone || '',
               cardNumber: item.card_number || item.id_number || '',
               years: '',
-              notes: '',
+              notes: item.notes || '',
               documents: (Array.isArray(item.documents) ? item.documents : item.documents?.data || []).map((doc: any) => ({
                 id: doc.documentId || doc.id,
                 name: doc.attributes?.name || doc.name,
@@ -746,6 +748,7 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
             years: '',
             hometown: s.pob || '',
             address: (s as any).address || '',
+            phone: (s as any).phone || '',
             notes: '',
             gender: s.gender || '',
             documents: s.documents || [],
@@ -971,6 +974,7 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
       years: '',
       hometown: s.pob,
       address: (s as any).address || '',
+      phone: (s as any).phone || '',
       notes: '',
       photo: s.photo,
     } as DecisionDetail));
@@ -1039,8 +1043,8 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
     setTempStudents(newList);
     setIsEditStudentModalOpen(false);
 
-    // Optional: Update source record in Students Management
-    if (window.confirm("Bạn có muốn cập nhật thông tin (bao gồm ảnh) vào Hồ sơ gốc (Quản lý học viên) không?")) {
+    // Ghi ngược vào Hồ sơ gốc (Quản lý học viên)
+    if (window.confirm("Bạn có muốn cập nhật thông tin (bao gồm ảnh, SĐT, địa chỉ) vào Hồ sơ gốc (Quản lý học viên) không?")) {
       try {
         const studentId = editingStudentData.id;
         
@@ -1059,7 +1063,10 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
             card_number: editingStudentData.cardNumber,
             id_number: editingStudentData.cardNumber,
             pob: editingStudentData.hometown,
-            photo: finalPhotoUrl || null
+            phone: editingStudentData.phone || '',
+            address: editingStudentData.address || '',
+            photo: finalPhotoUrl || null,
+            notes: editingStudentData.notes || ''
           });
           
           // Local sync
@@ -1070,6 +1077,8 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
             cardNumber: editingStudentData.cardNumber,
             idNumber: editingStudentData.cardNumber,
             pob: editingStudentData.hometown,
+            phone: editingStudentData.phone || '',
+            address: editingStudentData.address || '',
             photo: finalPhotoUrl || null
           } : s));
           
@@ -2746,7 +2755,7 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
                     <th className="px-4 py-2 min-w-[150px]">Họ tên học viên</th>
                     <th className="px-4 py-2 text-center">Số CCCD/CMND</th>
                     <th className="px-4 py-2 text-center">Ngày sinh</th>
-                    <th className="px-4 py-2">Quê quán (Nơi sinh)</th>
+                    <th className="px-4 py-2">Nơi sinh</th>
                     <th className="px-4 py-2 text-center">Điểm thi</th>
                     <th className="px-4 py-2 text-center w-24">Hồ sơ</th>
                     <th className="px-4 py-2 w-20 text-center">Sửa</th>
@@ -2820,7 +2829,7 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
   const renderEditStudentModal = () => {
     if (!editingStudentData) return null;
     return (
-      <div className="fixed inset-0 bg-black/60 z-[130] flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4 backdrop-blur-sm">
         <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl overflow-hidden border border-slate-300">
           <div className="bg-blue-700 text-white px-6 py-3 flex justify-between items-center">
             <h3 className="text-[14px] font-bold uppercase tracking-tight">Sửa thông tin học viên trong QĐ</h3>
@@ -2945,12 +2954,44 @@ có ảnh</span>
               </div>
             </div>
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-slate-500 uppercase">Quê quán (Nơi sinh):</label>
+              <label className="text-[11px] font-bold text-slate-500 uppercase">Nơi sinh:</label>
               <input
                 type="text"
                 value={editingStudentData.hometown}
                 onChange={e => setEditingStudentData({ ...editingStudentData, hometown: e.target.value })}
                 className="w-full border border-slate-300 rounded px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-500 uppercase">Số điện thoại:</label>
+                <input
+                  type="tel"
+                  value={editingStudentData.phone || ''}
+                  onChange={e => setEditingStudentData({ ...editingStudentData, phone: e.target.value })}
+                  className="w-full border border-slate-300 rounded px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="0901..."
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-500 uppercase">Địa chỉ thường trú:</label>
+                <input
+                  type="text"
+                  value={editingStudentData.address || ''}
+                  onChange={e => setEditingStudentData({ ...editingStudentData, address: e.target.value })}
+                  className="w-full border border-slate-300 rounded px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/TP"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-500 uppercase">Ghi chú:</label>
+              <textarea
+                rows={3}
+                placeholder="Nhập ghi chú cho học viên (nếu có)..."
+                value={editingStudentData.notes || ''}
+                onChange={e => setEditingStudentData({ ...editingStudentData, notes: e.target.value })}
+                className="w-full border border-slate-300 rounded px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 resize-none"
               />
             </div>
           </div>
@@ -2975,7 +3016,7 @@ có ảnh</span>
   };
 
   const renderAddStudentModal = () => (
-    <div className="fixed inset-0 bg-black/70 z-[110] flex items-center justify-center p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 bg-black/70 z-[200] flex items-center justify-center p-4 backdrop-blur-sm">
       <div className="bg-white w-full max-w-5xl rounded-xl shadow-2xl overflow-hidden border border-slate-300 flex flex-col max-h-[90vh]">
         <div className="bg-slate-800 text-white px-6 py-4 flex justify-between items-center shrink-0">
           <h2 className="text-lg font-bold">Chọn học viên thêm vào quyết định</h2>

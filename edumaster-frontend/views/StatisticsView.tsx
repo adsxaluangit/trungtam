@@ -66,7 +66,7 @@ const StatisticsView: React.FC = () => {
         setLoading(true);
         try {
             // Fetch OPENING decisions with students and related_decision to determine status
-            const response = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?populate[students]=true&populate[school_class]=true&populate[related_decision]=true`);
+            const response = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?populate[students][fields][0]=full_name&populate[students][fields][1]=dob&populate[students][fields][2]=gender&populate[students][fields][3]=id_number&populate[students][fields][4]=student_code&populate[students][fields][5]=pob&populate[students][fields][6]=phone&populate[students][fields][7]=address&populate[students][fields][8]=ethnicity&populate[students][fields][9]=nationality&populate[students][fields][10]=company&populate[students][fields][11]=notes&populate[students][fields][12]=card_number&populate[school_class]=true&populate[related_decision]=true`);
 
             if (response) {
                 // Map and process intermediate data
@@ -266,24 +266,30 @@ const StatisticsView: React.FC = () => {
         completed.forEach(d => {
             const students = d.students || [];
             students.forEach((s: any) => {
-                // Handle Strapi v4/v5 nested or flattened structure
                 const student = s.attributes || s;
-                
-                // Get name from possible fields
-                const name = student.fullName || student.name || student.full_name || "...";
-                
-                // Use the shared formatDate utility for dd/mm/yyyy
-                const dob = student.dob ? formatDate(student.dob) : "...";
+
+                const name = student.full_name || student.fullName || student.name || '';
+                const dob = student.dob ? formatDate(student.dob) : '';
+                const cccd = student.id_number || student.idNumber || student.card_number || student.student_code || '';
 
                 wsData.push({
-                    "STT": stt++,
-                    "Họ và Tên": name,
-                    "CCCD": student.id_number || student.idNumber || student.student_code || '',
-                    "Ngày sinh": dob,
-                    "Lớp": d.className,
-                    "Khóa": d.trainingCourse,
-                    "Số QĐ": d.number,
-                    "Ghi chú": student.notes || ""
+                    'STT': stt++,
+                    'Mã học viên': student.student_code || student.studentCode || '',
+                    'Họ và Tên': name,
+                    'Giới tính': student.gender || '',
+                    'Ngày sinh': dob,
+                    'Nơi sinh': student.pob || '',
+                    'Dân tộc': student.ethnicity || '',
+                    'Quốc tịch': student.nationality || '',
+                    'Số CCCD/CMND': cccd,
+                    'Số điện thoại': student.phone || '',
+                    'Địa chỉ thường trú': student.address || '',
+                    'Đơn vị công tác': student.company || '',
+                    'Lớp học': d.className,
+                    'Đợt/Khóa': d.trainingCourse,
+                    'Số QĐ': d.number,
+                    'Ngày ký QĐ': d.signedDate ? formatDate(d.signedDate) : '',
+                    'Ghi chú': student.notes || ''
                 });
             });
         });
@@ -295,6 +301,27 @@ const StatisticsView: React.FC = () => {
 
         const wb = XLSX.utils.book_new();
         const ws = XLSX.utils.json_to_sheet(wsData);
+
+        ws['!cols'] = [
+            { wch: 5 },
+            { wch: 18 },
+            { wch: 28 },
+            { wch: 10 },
+            { wch: 14 },
+            { wch: 22 },
+            { wch: 12 },
+            { wch: 12 },
+            { wch: 18 },
+            { wch: 16 },
+            { wch: 32 },
+            { wch: 28 },
+            { wch: 32 },
+            { wch: 14 },
+            { wch: 12 },
+            { wch: 14 },
+            { wch: 24 },
+        ];
+
         XLSX.utils.book_append_sheet(wb, ws, "TongHopHocVien");
         XLSX.writeFile(wb, `TongHopHocVien_${new Date().toISOString().split('T')[0]}.xlsx`);
     };

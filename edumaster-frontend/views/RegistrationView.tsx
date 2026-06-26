@@ -151,7 +151,7 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
         loadClasses();
     }, []);
 
-    // Check for existing student when 12 digits ID is typed
+    // Check for existing student when 12 digits ID is typed — and auto-fill form
     useEffect(() => {
         const checkExisting = async (cccd: string) => {
             setIsCheckingId(true);
@@ -159,16 +159,35 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
                 const fiveYearsAgo = new Date();
                 fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5);
                 const filters = `filters[id_number][$eq]=${cccd}&filters[createdAt][$gte]=${fiveYearsAgo.toISOString()}&sort=createdAt:desc`;
-                // customParams to populate documents
                 const endpoint = `${COLLECTIONS.STUDENTS}?populate=*&pagination[pageSize]=1&${filters}`;
                 const data = await fetchCategory(endpoint);
                 
                 if (data && data.length > 0) {
                     const latestStudent = data[0];
-                    if (latestStudent.photo || (latestStudent.documents && latestStudent.documents.length > 0)) {
-                        setExistingData(latestStudent);
-                    } else {
-                        setExistingData(null);
+                    setExistingData(latestStudent);
+                    // Auto-fill student info from existing record
+                    setFormData(prev => ({
+                        ...prev,
+                        fullName: latestStudent.full_name || latestStudent.fullName || prev.fullName,
+                        dob: latestStudent.dob
+                            ? (() => {
+                                const d = new Date(latestStudent.dob);
+                                if (isNaN(d.getTime())) return prev.dob;
+                                const day = String(d.getDate()).padStart(2, '0');
+                                const month = String(d.getMonth() + 1).padStart(2, '0');
+                                const year = String(d.getFullYear());
+                                return `${day},${month},${year}`;
+                              })()
+                            : prev.dob,
+                        gender: latestStudent.gender || prev.gender,
+                        phone: latestStudent.phone || prev.phone,
+                        pob: latestStudent.pob || prev.pob,
+                        address: latestStudent.address || prev.address,
+                        company: latestStudent.company || prev.company,
+                    }));
+                    // Auto-fill photo
+                    if (latestStudent.photo && !studentPhoto) {
+                        setStudentPhoto(latestStudent.photo);
                     }
                 } else {
                     setExistingData(null);
@@ -193,16 +212,33 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!formData.fullName || !formData.phone || !formData.idNumber || !formData.pob) {
-            alert('Vui lòng điền đầy đủ các trường bắt buộc (Họ tên, SĐT, CCCD, Nơi sinh)!');
+        if (!formData.idNumber || formData.idNumber.length !== 12) {
+            alert('Vui lòng nhập chính xác 12 số CCCD/CMND!');
+            return;
+        }
+        if (!formData.fullName || !formData.phone || !formData.pob) {
+            alert('Vui lòng điền đầy đủ các trường bắt buộc (Họ tên, SĐT, Nơi sinh)!');
+            return;
+        }
+        // Validate DOB
+        const dobParts = formData.dob.split(',');
+        if (!dobParts[0] || !dobParts[1] || !dobParts[2]) {
+            alert('Vui lòng chọn đầy đủ Ngày tháng năm sinh!');
+            return;
+        }
+        // Validate CCCD images
+        const hasCccdFront = cccdFront || existingData?.documents?.find((d: any) => d.name === 'CCCD Mặt trước')?.url;
+        const hasCccdBack = cccdBack || existingData?.documents?.find((d: any) => d.name === 'CCCD Mặt sau')?.url;
+        if (!hasCccdFront) {
+            alert('Vui lòng tải lên ảnh CCCD Mặt trước!');
+            return;
+        }
+        if (!hasCccdBack) {
+            alert('Vui lòng tải lên ảnh CCCD Mặt sau!');
             return;
         }
         if (selectedClasses.length === 0) {
             alert('Vui lòng chọn ít nhất 1 lớp học muốn đăng ký!');
-            return;
-        }
-        if (formData.idNumber.length !== 12) {
-            alert('Vui lòng nhập chính xác 12 số CCCD/CMND!');
             return;
         }
         // Block if any selected class is already duplicate
@@ -389,6 +425,38 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
                         <div className="grid grid-cols-1 gap-8">
                             {/* Form Fields — full width vì đã ẩn cột ảnh */}
                             <div className="col-span-1 space-y-3">
+
+                                {/* === CMND/CCCD — luôn ở đầu để tra cứu thí sinh === */}
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">CMND/CCCD <span className="text-red-500">*</span></label>
+                                    <input
+                                        type="text"
+                                        required
+                                        maxLength={12}
+                                        value={formData.idNumber}
+                                        onChange={e => {
+                                            const val = e.target.value.replace(/\D/g, '');
+                                            if (val.length <= 12) setFormData({ ...formData, idNumber: val });
+                                        }}
+                                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-slate-400"
+                                        placeholder="Nhập 12 số CCCD"
+                                    />
+                                    {isCheckingId && <p className="text-xs text-blue-500 mt-1 animate-pulse">Đang tìm kiếm thông tin thí sinh...</p>}
+                                    {existingData && !isCheckingId && (
+                                        <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800 flex items-start gap-2">
+                                            <CheckCircle size={16} className="mt-0.5 shrink-0 text-blue-600" />
+                                            <div>
+                                                <p className="font-bold">Đã tìm thấy thí sinh: {existingData.full_name || existingData.fullName}</p>
+                                                <p className="text-xs text-blue-600 mt-0.5">Thông tin đã được điền tự động. Vui lòng kiểm tra lại trước khi gửi.</p>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {!existingData && !isCheckingId && formData.idNumber.length === 12 && (
+                                        <p className="text-xs text-slate-500 mt-1">Không tìm thấy thí sinh trong hệ thống. Vui lòng điền thông tin bên dưới.</p>
+                                    )}
+                                </div>
+
+                                {/* === Họ và tên thí sinh === */}
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 mb-1">Họ và tên thí sinh <span className="text-red-500">*</span></label>
                                     <input
@@ -402,7 +470,7 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-1">Ngày sinh</label>
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">Ngày sinh <span className="text-red-500">*</span></label>
                                     <div className="grid grid-cols-3 gap-2">
                                         <div className="relative">
                                             <select
@@ -480,39 +548,15 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-1">Số điện thoại <span className="text-red-500">*</span></label>
-                                        <input
-                                            type="tel"
-                                            required
-                                            value={formData.phone}
-                                            onChange={e => setFormData({ ...formData, phone: e.target.value })}
-                                            className="w-full px-4 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-1">CMND/CCCD <span className="text-red-500">*</span></label>
-                                        <input
-                                            type="text"
-                                            required
-                                            maxLength={12}
-                                            value={formData.idNumber}
-                                            onChange={e => {
-                                                const val = e.target.value.replace(/\D/g, '');
-                                                if (val.length <= 12) setFormData({ ...formData, idNumber: val });
-                                            }}
-                                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-slate-400"
-                                            placeholder="Nhập 12 số CCCD"
-                                        />
-                                        {isCheckingId && <p className="text-xs text-blue-500 mt-1">Đang kiểm tra dữ liệu...</p>}
-                                        {existingData && !isCheckingId && (
-                                            <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-700 flex items-start gap-1">
-                                                <CheckCircle size={14} className="mt-0.5 shrink-0" />
-                                                <span>Hệ thống ghi nhận bạn đã có sẵn Ảnh thẻ & CCCD hợp lệ. Bạn không cần tải lại ảnh nếu không có thay đổi.</span>
-                                            </div>
-                                        )}
-                                    </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">Số điện thoại <span className="text-red-500">*</span></label>
+                                    <input
+                                        type="tel"
+                                        required
+                                        value={formData.phone}
+                                        onChange={e => setFormData({ ...formData, phone: e.target.value })}
+                                        className="w-full px-4 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                    />
                                 </div>
 
 
@@ -656,14 +700,22 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
 
                                 <div className="mb-6 grid grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-semibold text-slate-700 mb-1">CCCD Mặt trước</label>
-                                        <div className="border-2 border-dashed border-slate-300 rounded-lg p-2 text-center h-[120px] flex flex-col items-center justify-center relative hover:bg-slate-50 cursor-pointer overflow-hidden group">
+                                        <label className="block text-sm font-semibold text-slate-700 mb-1">
+                                            CCCD Mặt trước <span className="text-red-500">*</span>
+                                        </label>
+                                        <div className={`border-2 border-dashed rounded-lg p-2 text-center h-[120px] flex flex-col items-center justify-center relative hover:bg-slate-50 cursor-pointer overflow-hidden group ${
+                                            !cccdFront && !existingData?.documents?.find((d: any) => d.name === 'CCCD Mặt trước')
+                                                ? 'border-red-300 bg-red-50/30'
+                                                : 'border-slate-300'
+                                        }`}>
                                             {cccdFront ? (
                                                 <img src={cccdFront} alt="CCCD Front" className="absolute inset-0 w-full h-full object-cover" />
+                                            ) : existingData?.documents?.find((d: any) => d.name === 'CCCD Mặt trước')?.url ? (
+                                                <img src={existingData.documents.find((d: any) => d.name === 'CCCD Mặt trước').url} alt="CCCD Front" className="absolute inset-0 w-full h-full object-cover opacity-80" />
                                             ) : (
                                                 <>
-                                                    <Upload className="text-slate-400 mb-2" size={24} />
-                                                    <span className="text-xs text-slate-500">Tải ảnh lên</span>
+                                                    <Upload className="text-red-400 mb-2" size={24} />
+                                                    <span className="text-xs text-red-500 font-medium">Bắt buộc tải ảnh</span>
                                                 </>
                                             )}
                                             <input
@@ -679,16 +731,27 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
                                                 }}
                                             />
                                         </div>
+                                        {existingData?.documents?.find((d: any) => d.name === 'CCCD Mặt trước') && !cccdFront && (
+                                            <p className="text-xs text-green-600 mt-1">✓ Dùng ảnh từ lần đăng ký trước</p>
+                                        )}
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-semibold text-slate-700 mb-1">CCCD Mặt sau</label>
-                                        <div className="border-2 border-dashed border-slate-300 rounded-lg p-2 text-center h-[120px] flex flex-col items-center justify-center relative hover:bg-slate-50 cursor-pointer overflow-hidden group">
+                                        <label className="block text-sm font-semibold text-slate-700 mb-1">
+                                            CCCD Mặt sau <span className="text-red-500">*</span>
+                                        </label>
+                                        <div className={`border-2 border-dashed rounded-lg p-2 text-center h-[120px] flex flex-col items-center justify-center relative hover:bg-slate-50 cursor-pointer overflow-hidden group ${
+                                            !cccdBack && !existingData?.documents?.find((d: any) => d.name === 'CCCD Mặt sau')
+                                                ? 'border-red-300 bg-red-50/30'
+                                                : 'border-slate-300'
+                                        }`}>
                                             {cccdBack ? (
                                                 <img src={cccdBack} alt="CCCD Back" className="absolute inset-0 w-full h-full object-cover" />
+                                            ) : existingData?.documents?.find((d: any) => d.name === 'CCCD Mặt sau')?.url ? (
+                                                <img src={existingData.documents.find((d: any) => d.name === 'CCCD Mặt sau').url} alt="CCCD Back" className="absolute inset-0 w-full h-full object-cover opacity-80" />
                                             ) : (
                                                 <>
-                                                    <Upload className="text-slate-400 mb-2" size={24} />
-                                                    <span className="text-xs text-slate-500">Tải ảnh lên</span>
+                                                    <Upload className="text-red-400 mb-2" size={24} />
+                                                    <span className="text-xs text-red-500 font-medium">Bắt buộc tải ảnh</span>
                                                 </>
                                             )}
                                             <input
@@ -704,6 +767,9 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
                                                 }}
                                             />
                                         </div>
+                                        {existingData?.documents?.find((d: any) => d.name === 'CCCD Mặt sau') && !cccdBack && (
+                                            <p className="text-xs text-green-600 mt-1">✓ Dùng ảnh từ lần đăng ký trước</p>
+                                        )}
                                     </div>
                                 </div>
 

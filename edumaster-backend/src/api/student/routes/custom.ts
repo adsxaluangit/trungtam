@@ -1,6 +1,12 @@
 export default {
     routes: [
       {
+        method: 'POST',
+        path: '/students/process-photo',
+        handler: 'student.processPhoto',
+        config: { auth: false },
+      },
+      {
         method: 'GET',
         path: '/students/check-duplicate',
         handler: 'student.checkDuplicate',

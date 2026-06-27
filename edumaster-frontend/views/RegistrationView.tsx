@@ -5,6 +5,7 @@ import { Student } from '../types';
 
 import { fetchCategory, createCategory, COLLECTIONS, uploadFile, checkDuplicateStudent } from '../services/api';
 import { parseToISO } from '../utils/dateUtils';
+import { PROVINCES_LIST } from '../constants';
 
 const compressImage = (file: File, maxWidth: number = 1200): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -563,47 +564,28 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 mb-1">Nơi sinh (Tỉnh/TP) <span className="text-red-500">*</span></label>
                                     <select
-                                        required
-                                        value={formData.pob}
-                                        onChange={e => setFormData({ ...formData, pob: e.target.value })}
+                                        required={!(formData.pob !== '' && !PROVINCES_LIST.includes(formData.pob))}
+                                        value={(formData.pob !== '' && !PROVINCES_LIST.includes(formData.pob)) ? 'other' : formData.pob}
+                                        onChange={e => setFormData({ ...formData, pob: e.target.value === 'other' ? 'Khác' : e.target.value })}
                                         className="w-full px-4 py-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                                     >
                                         <option value="">-- Chọn tỉnh/thành phố --</option>
-                                        <option value="Hà Nội">Hà Nội</option>
-                                        <option value="Huế">Huế</option>
-                                        <option value="Lai Châu">Lai Châu</option>
-                                        <option value="Điện Biên">Điện Biên</option>
-                                        <option value="Sơn La">Sơn La</option>
-                                        <option value="Lạng Sơn">Lạng Sơn</option>
-                                        <option value="Quảng Ninh">Quảng Ninh</option>
-                                        <option value="Thanh Hoá">Thanh Hoá</option>
-                                        <option value="Nghệ An">Nghệ An</option>
-                                        <option value="Hà Tĩnh">Hà Tĩnh</option>
-                                        <option value="Cao Bằng">Cao Bằng</option>
-                                        <option value="Tuyên Quang">Tuyên Quang</option>
-                                        <option value="Lào Cai">Lào Cai</option>
-                                        <option value="Thái Nguyên">Thái Nguyên</option>
-                                        <option value="Phú Thọ">Phú Thọ</option>
-                                        <option value="Bắc Ninh">Bắc Ninh</option>
-                                        <option value="Hưng Yên">Hưng Yên</option>
-                                        <option value="Hải Phòng">Hải Phòng</option>
-                                        <option value="Ninh Bình">Ninh Bình</option>
-                                        <option value="Quảng Trị">Quảng Trị</option>
-                                        <option value="Đà Nẵng">Đà Nẵng</option>
-                                        <option value="Quảng Ngãi">Quảng Ngãi</option>
-                                        <option value="Gia Lai">Gia Lai</option>
-                                        <option value="Khánh Hòa">Khánh Hòa</option>
-                                        <option value="Lâm Đồng">Lâm Đồng</option>
-                                        <option value="Đắk Lắk">Đắk Lắk</option>
-                                        <option value="TP. Hồ Chí Minh">TP. Hồ Chí Minh</option>
-                                        <option value="Đồng Nai">Đồng Nai</option>
-                                        <option value="Tây Ninh">Tây Ninh</option>
-                                        <option value="Cần Thơ">Cần Thơ</option>
-                                        <option value="Vĩnh Long">Vĩnh Long</option>
-                                        <option value="Đồng Tháp">Đồng Tháp</option>
-                                        <option value="Cà Mau">Cà Mau</option>
-                                        <option value="An Giang">An Giang</option>
+                                        {PROVINCES_LIST.map(province => (
+                                            <option key={province} value={province}>{province}</option>
+                                        ))}
+                                        <option value="other">Khác...</option>
                                     </select>
+                                    {(formData.pob !== '' && !PROVINCES_LIST.includes(formData.pob)) && (
+                                        <input
+                                            type="text"
+                                            required
+                                            value={formData.pob === 'Khác' ? '' : formData.pob}
+                                            onChange={e => setFormData({ ...formData, pob: e.target.value || 'Khác' })}
+                                            placeholder="Nhập tên Tỉnh/Thành phố hoặc Quốc gia..."
+                                            className="w-full mt-2 px-4 py-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none shadow-sm animate-in fade-in slide-in-from-top-1"
+                                            autoFocus
+                                        />
+                                    )}
                                 </div>
 
                                 <div>

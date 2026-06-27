@@ -2441,7 +2441,7 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
           <td class="center no-border-left w-last-name">${last}</td>
           <td class="center"></td>
           <td class="center"></td>
-          <td class="left">${s.address || s.hometown || ''}</td>
+          <td class="left">${s.address || ''}</td>
         </tr>
       `;
 

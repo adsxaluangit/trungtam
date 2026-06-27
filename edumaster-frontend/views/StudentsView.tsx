@@ -7,6 +7,7 @@ import ExcelJS from 'exceljs';
 import { fetchCategory, fetchCategoryPaginated, createCategory, updateCategory, deleteCategory, COLLECTIONS, uploadFile, checkDuplicateStudent } from '../services/api';
 import { formatDate, parseToISO } from '../utils/dateUtils';
 import { downloadFile } from '../utils/fileUtils';
+import { PROVINCES_LIST } from '../constants';
 
 
 
@@ -1168,49 +1169,31 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 col-span-2">
-                    <label className="w-32 flex-shrink-0 text-left pl-4 text-[12px] text-slate-600 font-medium whitespace-nowrap">Nơi sinh:</label>
-                    <select
-                      value={formData.pob}
-                      onChange={e => setFormData({ ...formData, pob: e.target.value })}
-                      className="flex-1 border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] focus:border-blue-500 outline-none bg-white"
-                    >
-                      <option value="">--Chọn nơi sinh--</option>
-                      <option value="Hà Nội">Hà Nội</option>
-                      <option value="Huế">Huế</option>
-                      <option value="Lai Châu">Lai Châu</option>
-                      <option value="Điện Biên">Điện Biên</option>
-                      <option value="Sơn La">Sơn La</option>
-                      <option value="Lạng Sơn">Lạng Sơn</option>
-                      <option value="Quảng Ninh">Quảng Ninh</option>
-                      <option value="Thanh Hoá">Thanh Hoá</option>
-                      <option value="Nghệ An">Nghệ An</option>
-                      <option value="Hà Tĩnh">Hà Tĩnh</option>
-                      <option value="Cao Bằng">Cao Bằng</option>
-                      <option value="Tuyên Quang">Tuyên Quang</option>
-                      <option value="Lào Cai">Lào Cai</option>
-                      <option value="Thái Nguyên">Thái Nguyên</option>
-                      <option value="Phú Thọ">Phú Thọ</option>
-                      <option value="Bắc Ninh">Bắc Ninh</option>
-                      <option value="Hưng Yên">Hưng Yên</option>
-                      <option value="Hải Phòng">Hải Phòng</option>
-                      <option value="Ninh Bình">Ninh Bình</option>
-                      <option value="Quảng Trị">Quảng Trị</option>
-                      <option value="Đà Nẵng">Đà Nẵng</option>
-                      <option value="Quảng Ngãi">Quảng Ngãi</option>
-                      <option value="Gia Lai">Gia Lai</option>
-                      <option value="Khánh Hòa">Khánh Hòa</option>
-                      <option value="Lâm Đồng">Lâm Đồng</option>
-                      <option value="Đắk Lắk">Đắk Lắk</option>
-                      <option value="TP. Hồ Chí Minh">TP. Hồ Chí Minh</option>
-                      <option value="Đồng Nai">Đồng Nai</option>
-                      <option value="Tây Ninh">Tây Ninh</option>
-                      <option value="Cần Thơ">Cần Thơ</option>
-                      <option value="Vĩnh Long">Vĩnh Long</option>
-                      <option value="Đồng Tháp">Đồng Tháp</option>
-                      <option value="Cà Mau">Cà Mau</option>
-                      <option value="An Giang">An Giang</option>
-                    </select>
+                  <div className={`flex gap-2 col-span-2 ${(formData.pob !== '' && !PROVINCES_LIST.includes(formData.pob)) ? 'items-start' : 'items-center'}`}>
+                    <label className={`w-32 flex-shrink-0 text-left pl-4 text-[12px] text-slate-600 font-medium whitespace-nowrap ${(formData.pob !== '' && !PROVINCES_LIST.includes(formData.pob)) ? 'pt-1.5' : ''}`}>Nơi sinh:</label>
+                    <div className="flex-1 flex flex-col gap-1.5">
+                      <select
+                        value={(formData.pob !== '' && !PROVINCES_LIST.includes(formData.pob)) ? 'other' : formData.pob}
+                        onChange={e => setFormData({ ...formData, pob: e.target.value === 'other' ? 'Khác' : e.target.value })}
+                        className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] focus:border-blue-500 outline-none bg-white"
+                      >
+                        <option value="">--Chọn nơi sinh--</option>
+                        {PROVINCES_LIST.map(province => (
+                          <option key={province} value={province}>{province}</option>
+                        ))}
+                        <option value="other">Khác...</option>
+                      </select>
+                      {(formData.pob !== '' && !PROVINCES_LIST.includes(formData.pob)) && (
+                        <input
+                          type="text"
+                          value={formData.pob === 'Khác' ? '' : formData.pob}
+                          onChange={e => setFormData({ ...formData, pob: e.target.value || 'Khác' })}
+                          placeholder="Nhập tên Tỉnh/Thành phố hoặc Quốc gia..."
+                          className="w-full border border-blue-300 rounded-sm px-2 py-1.5 text-[12px] focus:border-blue-500 outline-none shadow-sm animate-in fade-in"
+                          autoFocus
+                        />
+                      )}
+                    </div>
                   </div>
 
                   {/* Row 3: Gender & ID */}

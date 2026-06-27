@@ -217,8 +217,8 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
             alert('Vui lòng nhập chính xác 12 số CCCD/CMND!');
             return;
         }
-        if (!formData.fullName || !formData.phone || !formData.pob) {
-            alert('Vui lòng điền đầy đủ các trường bắt buộc (Họ tên, SĐT, Nơi sinh)!');
+        if (!formData.fullName || !formData.phone || !formData.pob || !formData.address) {
+            alert('Vui lòng điền đầy đủ các trường bắt buộc (Họ tên, SĐT, Nơi sinh, Địa chỉ)!');
             return;
         }
         // Validate DOB
@@ -589,8 +589,9 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-1">Địa chỉ thường trú</label>
+                                    <label className="block text-sm font-bold text-slate-700 mb-1">Địa chỉ thường trú <span className="text-red-500">*</span></label>
                                     <textarea
+                                        required
                                         rows={1}
                                         value={formData.address}
                                         onChange={e => setFormData({ ...formData, address: e.target.value })}

@@ -397,8 +397,8 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
             <div className="bg-white shadow-sm border-b sticky top-0 z-50">
                 <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white font-bold text-lg">E</div>
-                        <span className="font-bold text-xl text-slate-800 tracking-tight">EduMaster<span className="text-blue-600">Pro</span></span>
+                        <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white font-bold text-lg">T</div>
+                        <span className="font-bold text-xl text-slate-800 tracking-tight">Trungtam<span className="text-blue-600">Pro</span></span>
                     </div>
                     <button onClick={() => window.location.href = '/quantri'} className="text-sm font-bold text-slate-500 hover:text-blue-600 flex items-center gap-2 px-3 py-1.5 border border-transparent hover:border-blue-100 rounded transition-all">
                         <LogIn size={16} /> Đăng nhập hệ thống

@@ -3,7 +3,7 @@
  */
 
 import { factories } from '@strapi/strapi'
-import { GoogleGenAI } from '@google/genai'
+
 
 export default factories.createCoreController('api::student.student', ({ strapi }) => ({
 
@@ -19,6 +19,7 @@ export default factories.createCoreController('api::student.student', ({ strapi 
         return ctx.badRequest("GEMINI_API_KEY is not configured.");
       }
 
+      const { GoogleGenAI } = await import('@google/genai');
       const aiClient = new GoogleGenAI({
         apiKey: apiKey.trim(),
       });
@@ -35,20 +36,8 @@ export default factories.createCoreController('api::student.student', ({ strapi 
         }
       }
 
-      const clothingPrompt = gender === "Nữ" || gender === "female"
-        ? "Change the person's clothing to a professional businesswoman dark suit, blazer, or elegant jacket with a clean white shirt or blouse suitable for a professional passport photo."
-        : "Change the person's clothing to a professional dark business suit with a white shirt and a matching tie.";
+      const promptText = `Hãy biến ảnh chụp thành ảnh kiểu hộ chiếu: giữ nguyên khuôn mặt, tông màu da mịn màng, tóc gọn gàng, nền trắng tinh, ánh sáng studio giúp làm nổi bật đôi mắt và đường nét khuôn mặt, định dạng 3x4 cm,kích thước 354 × 472 pixel (ở độ phân giải 350 DPI), Luôn luôn mặc áo véc.`;
 
-      const promptText = `Please process this photo into a professional, high-quality passport photo.
-
-CRITICAL INSTRUCTIONS FOR BACKGROUND & CLOTHING:
-1. BACKGROUND REPLACEMENT (HIGHEST PRIORITY): Completely remove the existing background entirely, regardless of whether it is colored, dark, gray, textured, or near-white. Replace it with an absolute, pure, solid 100% flat white background (Hex color #FFFFFF).
-   - There must serve absolutely zero shadows, zero gradients, zero vignettes, and zero textures on the background.
-   - Ensure the cut-out around the hair, ears, and shoulders is perfectly clean, sharp, and pixel-perfect, with absolutely no remnants or glowing halo effects from the original background remaining.
-2. PROFESSIONAL ATTIRE: ${clothingPrompt} Make sure the collar and shoulders align realistically and naturally with the neck.
-3. PRESERVE IDENTITY: The face expression, head position, facial features, hair structure, and gaze direction of the person must remain identical and completely unaltered. Do not change or warp the face.
-4. CENTERING & LIGHTING: Ensure the person is centered, and any harsh original shadows on the face are softened with balanced, flattering studio-grade lighting.
-5. The final output must be optimized for a neat 3x4 aspect ratio cutout. Return only the processed output image.`;
 
       const response = await aiClient.models.generateContent({
         model: 'gemini-2.5-flash-image',

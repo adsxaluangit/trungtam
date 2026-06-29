@@ -1,4 +1,5 @@
 // EduMaster Pro Backend Entry Point
+// @ts-ignore
 import bcrypt from 'bcryptjs';
 
 export default {

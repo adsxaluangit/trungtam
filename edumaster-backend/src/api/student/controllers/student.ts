@@ -36,7 +36,7 @@ export default factories.createCoreController('api::student.student', ({ strapi 
         }
       }
 
-      const promptText = `Hãy biến ảnh chụp thành ảnh kiểu hộ chiếu: giữ nguyên khuôn mặt, tông màu da mịn màng, tóc gọn gàng, nền trắng tinh, ánh sáng studio giúp làm nổi bật đôi mắt và đường nét khuôn mặt, định dạng 3x4 cm,kích thước 354 × 472 pixel (ở độ phân giải 350 DPI), Luôn luôn mặc áo véc.`;
+      const promptText = `Hãy biến ảnh chụp thành ảnh kiểu hộ chiếu: giữ nguyên khuôn mặt, tông màu da mịn màng, tóc gọn gàng, nền trắng tinh, ánh sáng studio giúp làm nổi bật đôi mắt và đường nét khuôn mặt, định dạng 3x4 cm, kích thước 354 × 472 pixel (ở độ phân giải 350 DPI), luôn luôn mặc áo véc, sơ mi trắng và đeo cà vạt.`;
 
 
       const response = await aiClient.models.generateContent({

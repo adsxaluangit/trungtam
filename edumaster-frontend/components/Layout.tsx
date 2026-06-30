@@ -57,10 +57,10 @@ const Layout: React.FC<LayoutProps> = ({ children, activePath, onNavigate, curre
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col overflow-hidden font-sans">
       {/* Top Navigation Bar */}
-      <header className="bg-slate-900 text-white h-16 shrink-0 flex items-center px-6 shadow-2xl z-[100] no-print border-b border-white/5">
+      <header className="bg-slate-900 text-white h-16 shrink-0 flex items-center px-3 sm:px-6 shadow-2xl z-[100] no-print border-b border-white/5">
         {/* Logo Section */}
         <div
-          className="flex items-center gap-3 cursor-pointer mr-10 group"
+          className="flex items-center gap-3 cursor-pointer mr-4 sm:mr-10 group shrink-0"
           onClick={() => { setOpenDropdown(null); onNavigate('dashboard'); }}
         >
           <div className="w-9 h-9 bg-gradient-to-tr from-blue-600 to-indigo-500 rounded-xl flex items-center justify-center font-black text-xl shadow-lg group-hover:scale-105 transition-transform">E</div>
@@ -71,7 +71,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activePath, onNavigate, curre
         </div>
 
         {/* Main Navigation - Horizontal */}
-        <nav ref={dropdownRef} className="flex-1 flex items-center h-full gap-2">
+        <nav ref={dropdownRef} className="flex-1 flex items-center h-full gap-2 overflow-x-auto hide-scrollbar">
           {filteredNav.map((item) => {
             const hasChildren = item.children && item.children.length > 0;
             const isActive = activePath === item.path || isChildActive(item);
@@ -199,7 +199,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activePath, onNavigate, curre
         </nav>
 
         {/* Right Side Actions */}
-        <div className="flex items-center gap-4 ml-6">
+        <div className="flex items-center gap-2 sm:gap-4 ml-2 sm:ml-6 shrink-0">
           <button className="p-2.5 text-slate-400 hover:bg-slate-800 hover:text-white rounded-xl relative transition-all active:scale-95 shadow-inner">
             <Bell size={20} />
             <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse"></span>

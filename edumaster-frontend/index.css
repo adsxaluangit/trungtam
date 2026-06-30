@@ -18,3 +18,12 @@ code {
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Custom Utilities */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

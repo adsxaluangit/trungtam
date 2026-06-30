@@ -71,7 +71,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activePath, onNavigate, curre
         </div>
 
         {/* Main Navigation - Horizontal */}
-        <nav ref={dropdownRef} className="flex-1 flex items-center h-full gap-2 overflow-x-auto hide-scrollbar">
+        <nav ref={dropdownRef} className="flex-1 flex items-center h-full gap-2 overflow-x-auto sm:overflow-visible hide-scrollbar pb-1 sm:pb-0">
           {filteredNav.map((item) => {
             const hasChildren = item.children && item.children.length > 0;
             const isActive = activePath === item.path || isChildActive(item);
@@ -113,9 +113,9 @@ const Layout: React.FC<LayoutProps> = ({ children, activePath, onNavigate, curre
                 {hasChildren && isOpen && (
                   <>
                     {/* Tiny arrow pointing up */}
-                    <div className="absolute top-[calc(100%-10px)] left-6 w-4 h-4 bg-white rotate-45 z-[110] border-l border-t border-slate-200"></div>
+                    <div className="hidden sm:block absolute top-[calc(100%-10px)] left-6 w-4 h-4 bg-white rotate-45 z-[110] border-l border-t border-slate-200"></div>
 
-                    <div className="absolute top-[calc(100%-2px)] left-0 min-w-[320px] bg-white rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-slate-200 p-3 animate-in fade-in zoom-in-95 slide-in-from-top-4 duration-300 z-[120]">
+                    <div className="fixed top-[64px] left-0 w-full sm:absolute sm:top-[calc(100%-2px)] sm:left-0 sm:w-auto sm:min-w-[320px] bg-white sm:rounded-2xl rounded-b-2xl shadow-[0_20px_50px_rgba(0,0,0,0.2)] border-x border-b sm:border border-slate-200 p-3 animate-in fade-in zoom-in-95 slide-in-from-top-4 duration-300 z-[120]">
                       <div className="px-3 pt-2 pb-4 mb-2 border-b border-slate-100">
                         <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
                           <Sparkles size={12} className="text-blue-500" />

@@ -368,10 +368,13 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
     }
   };
 
+  // Constant for full deep population of students when needed
+  const DEEP_POPULATE_STUDENTS = `populate[school_class]=true&populate[related_decision]=true&populate[students][populate][documents][fields][0]=name&populate[students][populate][documents][fields][1]=url&populate[students][populate][documents][fields][2]=type&populate[students][fields][0]=full_name&populate[students][fields][1]=dob&populate[students][fields][2]=gender&populate[students][fields][3]=card_number&populate[students][fields][4]=id_number&populate[students][fields][5]=student_code&populate[students][fields][6]=pob&populate[students][fields][7]=photo&populate[students][fields][8]=address&populate[students][fields][9]=notes&populate[students][fields][10]=phone`;
+
   const loadDecisions = async () => {
-    // We need deep populate to get students' documents and photo within the decision
-    // Note: Using explicit relation population (true) instead of * to avoid validation errors with deep nested relations
-    const data = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?sort[0]=signed_date:desc&sort[1]=id:desc&populate[school_class]=true&populate[related_decision]=true&populate[students][populate][documents][fields][0]=name&populate[students][populate][documents][fields][1]=url&populate[students][populate][documents][fields][2]=type&populate[students][fields][0]=full_name&populate[students][fields][1]=dob&populate[students][fields][2]=gender&populate[students][fields][3]=card_number&populate[students][fields][4]=id_number&populate[students][fields][5]=student_code&populate[students][fields][6]=pob&populate[students][fields][7]=photo&populate[students][fields][8]=address&populate[students][fields][9]=notes&populate[students][fields][10]=phone`);
+    // Populate students basic fields (without deep relations like documents/photo) for list view to vastly improve load performance
+    // The full students details (photos, documents) will be lazy-loaded when opening the edit modal.
+    const data = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?sort[0]=signed_date:desc&sort[1]=id:desc&populate[school_class]=true&populate[related_decision]=true&populate[students]=true`);
     if (data) {
       const mapped = data.map((d: any, index: number) => {
         const classData = d.school_class?.data || d.school_class;
@@ -789,54 +792,89 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
           relatedOpeningId: String(openingDecision.id)
         });
 
-        const gradeRecord = examGrades.find(eg => {
-          const did = eg.decision?.documentId || eg.decision?.id;
-          return String(did) === String(openingDecision.id);
-        });
+        // Lazy fetch the fully populated OPENING decision to get complete student details for mapping
+        setLoading(true);
+        fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?filters[documentId][$eq]=${selectedId}&${DEEP_POPULATE_STUDENTS}`)
+          .then((raw) => {
+            if (raw && raw.length > 0) {
+              const fullOpeningDecision = raw[0];
+              const studentsData = fullOpeningDecision.students?.data || fullOpeningDecision.students || [];
+              const mappedFullStudents = Array.isArray(studentsData) ? studentsData.map((s: any, sIdx: number) => {
+                const item = s.attributes || s;
+                return {
+                  id: String(s.documentId || s.id),
+                  strapiId: s.strapiId || s.id,
+                  stt: sIdx + 1,
+                  fullName: item.full_name || item.fullName || '',
+                  gender: item.gender || 'Nam',
+                  dob: item.dob || '',
+                  studentCode: item.student_code || item.studentCode || item.code || '',
+                  hometown: item.pob || '',
+                  address: item.address || '',
+                  phone: item.phone || '',
+                  cardNumber: item.card_number || item.id_number || '',
+                  years: '',
+                  notes: item.notes || '',
+                  documents: (Array.isArray(item.documents) ? item.documents : item.documents?.data || []).map((doc: any) => ({
+                    id: doc.documentId || doc.id,
+                    name: doc.attributes?.name || doc.name,
+                    url: doc.attributes?.url || doc.url,
+                    type: doc.attributes?.mime || doc.type || 'application/pdf'
+                  })),
+                  photo: item.photo || null
+                };
+              }) : [];
 
-        if (gradeRecord && gradeRecord.grades) {
-          const passingStudents: DecisionDetail[] = [];
-          const subjectGrades = gradeRecord.grades;
+              const gradeRecord = examGrades.find(eg => {
+                const did = eg.decision?.documentId || eg.decision?.id;
+                return String(did) === String(openingDecision.id);
+              });
 
-          // Find the class to get the list of required subjects
-          const classObj = availableClasses.find(c => String(c.id) === String(openingDecision.classId));
-          const requiredSubjects = classObj?.subjects || []; // Array of subjects
+              if (gradeRecord && gradeRecord.grades) {
+                const passingStudents: DecisionDetail[] = [];
+                const subjectGrades = gradeRecord.grades;
 
-          openingDecision.students.forEach(s => {
-            // Check if student has grades for ALL required subjects
-            let hasAllGrades = true;
+                // Find the class to get the list of required subjects
+                const classObj = availableClasses.find(c => String(c.id) === String(openingDecision.classId));
+                const requiredSubjects = classObj?.subjects || [];
 
-            if (requiredSubjects.length === 0) {
-              // If no subjects defined for class, fallback to "at least one grade" or permit all?
-              // Let's permit all if no subjects are defined to avoid blocking in weird edge cases,
-              // or strictly require 0 grades? 
-              // Better to check if they have ANY grade if we can't determine subjects, 
-              // BUT the requirement is "If 1 of the subjects... has no grade".
-              // So if subjects exist, we must check all.
-              // If no subjects exist, technically they satisfy "all 0 subjects".
-              hasAllGrades = true;
-            } else {
-              if (subjectGrades && typeof subjectGrades === 'object') {
-                for (const subj of requiredSubjects) {
-                  const subId = String(subj.strapiId || subj.id);
-                  const sGrades = subjectGrades[subId]?.[s.studentCode];
-                  // Check if grade exists and is not empty/null
-                  if (sGrades === undefined || sGrades === null || sGrades === '') {
-                    hasAllGrades = false;
-                    break;
+                mappedFullStudents.forEach(s => {
+                  let hasAllGrades = true;
+
+                  if (requiredSubjects.length === 0) {
+                    hasAllGrades = true;
+                  } else {
+                    if (subjectGrades && typeof subjectGrades === 'object') {
+                      for (const subj of requiredSubjects) {
+                        const subId = String(subj.strapiId || subj.id);
+                        const sGrades = subjectGrades[subId]?.[s.studentCode];
+                        if (sGrades === undefined || sGrades === null || sGrades === '') {
+                          hasAllGrades = false;
+                          break;
+                        }
+                      }
+                    } else {
+                      hasAllGrades = false;
+                    }
                   }
-                }
+
+                  if (hasAllGrades) passingStudents.push(s);
+                });
+                
+                // Re-index passing students STT
+                setTempStudents(passingStudents.map((ps, idx) => ({ ...ps, stt: idx + 1 })));
               } else {
-                hasAllGrades = false;
+                setTempStudents([]);
               }
             }
-
-            if (hasAllGrades) passingStudents.push(s);
+          })
+          .catch(e => {
+             console.error("Failed to load opening decision details", e);
+             setTempStudents([]);
+          })
+          .finally(() => {
+             setLoading(false);
           });
-          setTempStudents(passingStudents);
-        } else {
-          setTempStudents([]);
-        }
       }
     }
   };
@@ -1170,7 +1208,7 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
     }
   };
 
-  const handleOpenEditDecision = (d: DecisionRecord, e?: React.MouseEvent) => {
+  const handleOpenEditDecision = async (d: DecisionRecord, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     
     if (checkIfLocked(d.id) && !e) {
@@ -1183,17 +1221,186 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
       location: d.location, company: d.company, classType: d.classType,
       classCode: d.classCode, className: d.className, trainingCourse: d.trainingCourse, notes: d.notes, classId: d.classId || '', relatedOpeningId: d.relatedOpeningId || '', startIndex: '1'
     });
-    setTempStudents(d.students || []);
+    
+    // Clear tempStudents initially while fetching full data
+    setTempStudents([]);
     setIsFormOpen(true);
+    setLoading(true);
+
+    try {
+      if (d.type === 'OPENING') {
+        // Lazy load full details for this OPENING decision
+        const raw = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?filters[documentId][$eq]=${d.id}&${DEEP_POPULATE_STUDENTS}`);
+        if (raw && raw.length > 0) {
+          const fetchedD = raw[0];
+          const studentsData = fetchedD.students?.data || fetchedD.students || [];
+          const mappedStudents = Array.isArray(studentsData) ? studentsData.map((s: any, sIdx: number) => {
+            const item = s.attributes || s;
+            return {
+              id: String(s.documentId || s.id),
+              strapiId: s.strapiId || s.id,
+              stt: sIdx + 1,
+              fullName: item.full_name || item.fullName || '',
+              gender: item.gender || 'Nam',
+              dob: item.dob || '',
+              studentCode: item.student_code || item.studentCode || item.code || '',
+              hometown: item.pob || '',
+              address: item.address || '',
+              phone: item.phone || '',
+              cardNumber: item.card_number || item.id_number || '',
+              years: '',
+              notes: item.notes || '',
+              documents: (Array.isArray(item.documents) ? item.documents : item.documents?.data || []).map((doc: any) => ({
+                id: doc.documentId || doc.id,
+                name: doc.attributes?.name || doc.name,
+                url: doc.attributes?.url || doc.url,
+                type: doc.attributes?.mime || doc.type || 'application/pdf'
+              })),
+              photo: item.photo || null
+            };
+          }) : [];
+          setTempStudents(mappedStudents);
+        } else {
+          setTempStudents(d.students || []);
+        }
+      } else {
+        // For RECOGNITION decisions, students are dynamically calculated based on the related OPENING decision and grades
+        if (d.relatedOpeningId) {
+          const raw = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?filters[documentId][$eq]=${d.relatedOpeningId}&${DEEP_POPULATE_STUDENTS}`);
+          if (raw && raw.length > 0) {
+            const fullOpeningDecision = raw[0];
+            const studentsData = fullOpeningDecision.students?.data || fullOpeningDecision.students || [];
+            const mappedFullStudents = Array.isArray(studentsData) ? studentsData.map((s: any, sIdx: number) => {
+              const item = s.attributes || s;
+              return {
+                id: String(s.documentId || s.id),
+                strapiId: s.strapiId || s.id,
+                stt: sIdx + 1,
+                fullName: item.full_name || item.fullName || '',
+                gender: item.gender || 'Nam',
+                dob: item.dob || '',
+                studentCode: item.student_code || item.studentCode || item.code || '',
+                hometown: item.pob || '',
+                address: item.address || '',
+                phone: item.phone || '',
+                cardNumber: item.card_number || item.id_number || '',
+                years: '',
+                notes: item.notes || '',
+                documents: (Array.isArray(item.documents) ? item.documents : item.documents?.data || []).map((doc: any) => ({
+                  id: doc.documentId || doc.id,
+                  name: doc.attributes?.name || doc.name,
+                  url: doc.attributes?.url || doc.url,
+                  type: doc.attributes?.mime || doc.type || 'application/pdf'
+                })),
+                photo: item.photo || null
+              };
+            }) : [];
+
+            const gradeRecord = examGrades.find(eg => {
+              const did = eg.decision?.documentId || eg.decision?.id;
+              return String(did) === String(d.relatedOpeningId);
+            });
+
+            if (gradeRecord && gradeRecord.grades) {
+              const passingStudents: DecisionDetail[] = [];
+              const subjectGrades = gradeRecord.grades;
+
+              const classObj = availableClasses.find(c => String(c.id) === String(fullOpeningDecision.school_class?.data?.documentId || fullOpeningDecision.school_class?.documentId || d.classId));
+              const requiredSubjects = classObj?.subjects || [];
+
+              mappedFullStudents.forEach(s => {
+                let hasAllGrades = true;
+
+                if (requiredSubjects.length === 0) {
+                  hasAllGrades = true;
+                } else {
+                  if (subjectGrades && typeof subjectGrades === 'object') {
+                    for (const subj of requiredSubjects) {
+                      const subId = String(subj.strapiId || subj.id);
+                      const sGrades = subjectGrades[subId]?.[s.studentCode];
+                      if (sGrades === undefined || sGrades === null || sGrades === '') {
+                        hasAllGrades = false;
+                        break;
+                      }
+                    }
+                  } else {
+                    hasAllGrades = false;
+                  }
+                }
+
+                if (hasAllGrades) passingStudents.push(s);
+              });
+              
+              setTempStudents(passingStudents.map((ps, idx) => ({ ...ps, stt: idx + 1 })));
+            } else {
+              setTempStudents([]);
+            }
+          } else {
+             setTempStudents(d.students || []);
+          }
+        } else {
+          setTempStudents(d.students || []);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load full decision details", err);
+      setTempStudents(d.students || []); // Fallback
+    }
+
+    // After setting tempStudents, we need to fetch shared documents by id_number for all loaded students
+    setTempStudents(prev => {
+      // Create a local copy to work with asynchronously
+      const finalStudents = [...prev];
+      if (finalStudents.length > 0) {
+        // Run async without blocking UI initially, update when done
+        const idNumbers = finalStudents.map(s => s.cardNumber || (s as any).idNumber || s.studentCode).filter(Boolean);
+        if (idNumbers.length > 0) {
+          try {
+            // Group into chunks of 50 to avoid URL too long
+            const chunkSize = 50;
+            const promises = [];
+            for (let i = 0; i < idNumbers.length; i += chunkSize) {
+              const chunk = idNumbers.slice(i, i + chunkSize);
+              const idQueries = chunk.map((id, idx) => `filters[id_number][$in][${idx}]=${encodeURIComponent(id)}`).join('&');
+              promises.push(fetchCategory(`${COLLECTIONS.STUDENT_DOCUMENTS}?${idQueries}&pagination[pageSize]=1000`));
+            }
+
+            Promise.all(promises).then(results => {
+              const allSharedDocs = results.flat();
+              if (allSharedDocs.length > 0) {
+                setTempStudents(currentStudents => currentStudents.map(s => {
+                  const sId = s.cardNumber || (s as any).idNumber || s.studentCode;
+                  const shared = allSharedDocs.filter((doc: any) => doc.id_number === sId).map((doc: any) => ({
+                    id: String(doc.documentId || doc.id),
+                    name: doc.name || doc.attributes?.name,
+                    url: doc.url || doc.attributes?.url,
+                    type: doc.type || doc.attributes?.type
+                  }));
+
+                  // Merge and deduplicate by URL
+                  const allDocs = [...(s.documents || []), ...shared];
+                  const uniqueDocs = Array.from(new Map(allDocs.map(doc => [doc.url, doc])).values());
+                  return { ...s, documents: uniqueDocs };
+                }));
+              }
+            });
+          } catch (e) {
+            console.error("Failed to fetch shared documents", e);
+          }
+        }
+      }
+      return finalStudents;
+    });
 
     // Load students for the class (even for recognition, we might want to manually add more students)
     if (d.classId) {
-      setLoading(true);
       loadStudentsByClass(d.classId).then(classStudents => {
         const approvedStudents = classStudents.filter(s => (s as any).isApproved === true);
         setAllStudents(approvedStudents);
         setLoading(false);
       });
+    } else {
+      setLoading(false);
     }
   };
 

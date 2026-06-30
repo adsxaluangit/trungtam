@@ -1,10 +1,10 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { FileSpreadsheet, RefreshCw, Trash2, Plus, Search, Filter, ChevronDown, X, Camera, Save, Calendar, User, Upload, Check, Phone, MapPin, Briefcase, Flag, School, Edit3, Image as ImageIcon, FileText, CheckCircle2, XCircle, ShieldCheck, Printer, Download } from 'lucide-react';
 import { Student } from '../types';
 import ExcelJS from 'exceljs';
 
 import { fetchCategory, fetchCategoryPaginated, createCategory, updateCategory, deleteCategory, COLLECTIONS, uploadFile, checkDuplicateStudent } from '../services/api';
+import { SearchableSelect, Option } from '../components/SearchableSelect';
 import { formatDate, parseToISO } from '../utils/dateUtils';
 import { downloadFile } from '../utils/fileUtils';
 import { PROVINCES_LIST } from '../constants';
@@ -26,7 +26,6 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
   const [editingId, setEditingId] = useState<string | null>(null);
   const [nations, setNations] = useState<any[]>([]);
   const [availableClasses, setAvailableClasses] = useState<any[]>([]);
-  const [allDecisions, setAllDecisions] = useState<any[]>([]);
 
   // Server-Side Config
   const [currentPage, setCurrentPage] = useState(1);
@@ -149,11 +148,7 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
 
       // Always use unassigned endpoint to exclude students already in decisions (handled by backend)
       const studentEndpoint = 'students/unassigned';
-      const [res] = await Promise.all([
-        fetchCategoryPaginated(studentEndpoint, currentPage, pageSize, filters, customParams),
-        // Fetch decisions only for recognition check if needed, but not for exclusion here
-        fetchCategory(COLLECTIONS.CLASS_DECISIONS).then(data => setAllDecisions(data || []))
-      ]);
+      const res = await fetchCategoryPaginated(studentEndpoint, currentPage, pageSize, filters, customParams);
 
       if (res && res.data) {
         let fetchedStudents = res.data.map(mapStudentFromApi);
@@ -306,7 +301,7 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
       URL.revokeObjectURL(url);
     } catch (e) {
       console.error('Export Excel failed:', e);
-      alert('Lỗi khi xuất Excel. Vui lòng thử lại.');
+      alert('Lỗi khi xuất Excel. V vui lòng thử lại.');
     }
   };
 
@@ -328,8 +323,8 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
   };
 
   // Handle class selection change
-  const handleClassChange = (className: string) => {
-    const selectedClass = availableClasses.find(c => c.name === className);
+  const handleClassChange = (className: string, selectedClass?: any) => {
+    if (!selectedClass) selectedClass = availableClasses.find(c => c.name === className);
     // After normalizeStrapiList: .id = documentId (string), .strapiId = numeric id
     // Strapi relation needs numeric id (strapiId) to avoid locale:null error
     const numericId = selectedClass ? String(selectedClass.strapiId || '') : '';
@@ -347,6 +342,22 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
     } else {
       setDuplicateWarning(null);
     }
+  };
+
+  const fetchClassesForDropdown = async (search: string): Promise<Option[]> => {
+    let url = `${COLLECTIONS.CLASSES}?pagination[pageSize]=20`;
+    if (search) {
+       url += `&filters[$or][0][name][$containsi]=${encodeURIComponent(search)}&filters[$or][1][code][$containsi]=${encodeURIComponent(search)}`;
+    } else {
+       url += `&sort[0]=createdAt:desc`;
+    }
+    const data = await fetchCategory(url);
+    if (!data) return [];
+    return data.map((c: any) => ({
+      id: c.name,
+      label: c.name ? `${c.code ? c.code + ' - ' : ''}${c.name}` : 'Không tên',
+      data: c
+    }));
   };
 
   // Xóa prefillDocs khi CCCD thay đổi
@@ -438,6 +449,13 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
 
   const startCamera = async (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    
+    // Kiểm tra API có hỗ trợ không (thường bị chặn nếu dùng IP mạng LAN qua HTTP thay vì HTTPS/localhost)
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert("Lỗi: Trình duyệt không hỗ trợ Camera hoặc tính năng bị chặn vì bạn đang không dùng HTTPS/localhost.");
+      return;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }
@@ -448,8 +466,17 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
           videoRef.current.srcObject = stream;
         }
       }, 50);
-    } catch (err) {
-      alert("Không thể truy cập Camera. Vui lòng kiểm tra quyền trình duyệt.");
+    } catch (err: any) {
+      console.error("Lỗi Camera:", err);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        alert("Lỗi: Bạn đã từ chối quyền truy cập Camera. Vui lòng cấp quyền trong cài đặt trình duyệt và thử lại.");
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        alert("Lỗi: Không tìm thấy thiết bị Camera nào trên máy của bạn.");
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        alert("Lỗi: Camera đang bị phần mềm khác sử dụng (ví dụ: Zalo, Zoom...). Vui lòng tắt và thử lại.");
+      } else {
+        alert("Không thể truy cập Camera: " + (err.message || err.name));
+      }
     }
   };
 
@@ -548,7 +575,7 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
       }
     } catch (error: any) {
       console.error(error);
-      alert('Không thể xử lý ảnh bằng AI: ' + error.message);
+      alert('Không thể xử lý ảnh bằng AI: ' + (error.message || 'Lỗi không xác định'));
     } finally {
       setIsProcessingAI(false);
     }
@@ -636,7 +663,7 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
     }
 
     if (formData.idNumber.length !== 12) {
-      alert('Vui lòng nhập chính xác 12 số CCCD/CMND!');
+      alert('V vui lòng nhập chính xác 12 số CCCD/CMND!');
       return;
     }
 
@@ -693,40 +720,42 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
       }
     }
 
-    // 2. Check 5-year rule from previous recognition decisions
-    const conflictingDecision = allDecisions.find((d: any) => {
-      if (d.type !== 'RECOGNITION') return false;
+    // 2. Check 5-year rule from previous recognition decisions dynamically
+    try {
+      const token = localStorage.getItem('jwt_token') || '';
+      const decRes = await fetch(`/api/class-decisions?filters[type][$eq]=RECOGNITION&filters[students][id_number][$eq]=${currentIdNumber}&populate[school_class]=*`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (decRes.ok) {
+        const decJson = await decRes.json();
+        const decisions = decJson?.data || [];
+        const conflictingDecision = decisions.find((d: any) => {
+          const decClass = d.school_class || d.attributes?.school_class;
+          const decClassId = String(decClass?.documentId || decClass?.id || '');
+          const decClassName = (decClass?.name || decClass?.attributes?.name || d.class_name || '').trim().toLowerCase();
+          return (currentClassId && decClassId === currentClassId) || (decClassName === currentClassName);
+        });
 
-      const decClass = d.school_class?.data || d.school_class;
-      const decClassId = String(decClass?.documentId || decClass?.id || '');
-      const decClassName = (decClass?.name || d.class_name || '').trim().toLowerCase();
+        if (conflictingDecision) {
+          const signedDateStr = conflictingDecision.signed_date || conflictingDecision.signedDate || conflictingDecision.attributes?.signed_date;
+          if (signedDateStr) {
+            const signedDate = new Date(signedDateStr);
+            const now = new Date();
+            const diffYears = (now.getTime() - signedDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
 
-      // Match class by ID (preferred) or Name
-      const isSameClass = (currentClassId && decClassId === currentClassId) || (decClassName === currentClassName);
-      if (!isSameClass) return false;
-
-      const studentsInDec = d.students?.data || d.students || [];
-      return studentsInDec.some((s: any) =>
-        s.student_code === currentIdNumber ||
-        s.id_number === currentIdNumber ||
-        s.card_number === currentIdNumber
-      );
-    });
-
-    if (conflictingDecision) {
-      const signedDateStr = conflictingDecision.signed_date || conflictingDecision.signedDate;
-      if (signedDateStr) {
-        const signedDate = new Date(signedDateStr);
-        const now = new Date();
-        const diffYears = (now.getTime() - signedDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
-
-        if (diffYears < 5) {
-          const proceed = window.confirm(`THÔNG BÁO: Học viên này ĐÃ CÓ CHỨNG CHỈ NÀY RỒI.\n(Được cấp theo Quyết định số ${conflictingDecision.decision_number || conflictingDecision.number} ngày ${signedDateStr})\n\nBạn có chắc chắn muốn đăng ký cho học viên này học lại lớp này (trong vòng 5 năm) không?`);
-          if (!proceed) return;
+            if (diffYears < 5) {
+              const decisionNumber = conflictingDecision.decision_number || conflictingDecision.number || conflictingDecision.attributes?.decision_number;
+              const proceed = window.confirm(`THÔNG BÁO: Học viên này ĐÃ CÓ CHỨNG CHỈ NÀY RỒI.\n(Được cấp theo Quyết định số ${decisionNumber || 'N/A'} ngày ${signedDateStr})\n\nBạn có chắc chắn muốn đăng ký cho học viên này học lại lớp này (trong vòng 5 năm) không?`);
+              if (!proceed) return;
+            }
+          }
         }
       }
+    } catch (e) {
+      console.warn('Failed to check 5-year rule', e);
     }
-    // -----------------------------------------------------
+
+
 
     // Prepare Payload
     const nameParts = formData.fullName.trim().split(' ');
@@ -1338,14 +1367,15 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
                   {/* Row 5: Class */}
                   <div className="flex items-center gap-2 col-span-2">
                     <label className="w-32 flex-shrink-0 text-left pl-4 text-[12px] text-slate-600 font-medium whitespace-nowrap">Lớp học<span className="text-red-500">*</span>:</label>
-                    <select
-                      value={formData.group}
-                      onChange={e => handleClassChange(e.target.value)}
-                      className="flex-1 border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] focus:border-blue-500 outline-none bg-white font-medium text-blue-700"
-                    >
-                      <option value="">--Chọn lớp học--</option>
-                      {availableClasses.map(cls => <option key={cls.id} value={cls.name}>{cls.name}</option>)}
-                    </select>
+                    <div className="flex-1">
+                      <SearchableSelect
+                        value={formData.group}
+                        onChange={(val, opt) => handleClassChange(val, opt?.data)}
+                        fetchOptions={fetchClassesForDropdown}
+                        placeholder="--Chọn lớp học--"
+                        defaultLabel={formData.group || "--Chọn lớp học--"}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1431,79 +1461,6 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
                   )}
                 </div>
 
-                {/* Camera Modal Overlay */}
-                {isCameraLive && (
-                  <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black/95 backdrop-blur-md animate-in fade-in duration-200">
-                    <div className="relative w-full h-full sm:h-auto sm:max-h-[90vh] sm:max-w-[550px] bg-black sm:rounded-3xl overflow-hidden shadow-2xl shadow-blue-900/20 border border-slate-800 flex flex-col">
-                      {/* Header */}
-                      <div className="absolute top-0 left-0 right-0 z-10 p-4 bg-gradient-to-b from-black/80 to-transparent flex justify-between items-center pointer-events-none">
-                        <h3 className="text-white font-medium text-lg drop-shadow-md">Chụp ảnh 3x4</h3>
-                        <button 
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); stopCamera(); }}
-                          className="p-2 bg-black/40 hover:bg-red-500/80 rounded-full text-white backdrop-blur-md transition-all pointer-events-auto"
-                        >
-                          <X size={20} />
-                        </button>
-                      </div>
-                      
-                      {/* Video Container */}
-                      <div className="relative w-full aspect-[3/4] bg-slate-900 flex items-center justify-center overflow-hidden">
-                        <video 
-                          ref={videoRef} 
-                          autoPlay 
-                          playsInline 
-                          className="w-full h-full object-cover transform scale-x-[-1]" 
-                        />
-                        
-                        {/* Overlay Passport Frame */}
-                        <div className="absolute inset-0 pointer-events-none">
-                          <svg className="w-full h-full" preserveAspectRatio="none">
-                            <defs>
-                              <mask id="face-hole">
-                                <rect width="100%" height="100%" fill="white" />
-                                <ellipse cx="50%" cy="42%" rx="28%" ry="33%" fill="black" />
-                              </mask>
-                            </defs>
-                            <rect width="100%" height="100%" fill="rgba(0,0,0,0.65)" mask="url(#face-hole)" />
-                            <ellipse cx="50%" cy="42%" rx="28%" ry="33%" fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth="2" strokeDasharray="8 8" />
-                            
-                            {/* Shoulders Guide */}
-                            <path d="M 15% 100% Q 50% 65% 85% 100%" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2" strokeDasharray="4 4" />
-                          </svg>
-                          
-                          <div className="absolute bottom-28 left-0 right-0 flex justify-center">
-                            <div className="bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
-                              <p className="text-white/90 text-[13px] font-medium tracking-wide">
-                                Căn khuôn mặt vào vòng Oval
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Controls */}
-                      <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-black via-black/90 to-transparent flex justify-center items-center gap-8">
-                        <button
-                          onClick={(e) => { e.preventDefault(); stopCamera(); }}
-                          className="w-12 h-12 flex items-center justify-center rounded-full bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white transition-all shadow-lg"
-                        >
-                          <X size={24} />
-                        </button>
-                        
-                        <button
-                          onClick={(e) => { e.preventDefault(); capturePhoto(e); }}
-                          className="w-[72px] h-[72px] flex items-center justify-center rounded-full bg-white/20 p-1.5 hover:bg-white/30 transition-all group shadow-2xl"
-                        >
-                          <div className="w-full h-full bg-white rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.5)] group-hover:scale-95 transition-transform">
-                            <Camera size={32} className="text-blue-600" />
-                          </div>
-                        </button>
-                        
-                        <div className="w-12 h-12"></div> {/* Spacer */}
-                      </div>
-                    </div>
-                  </div>
-                )}
 
                 <div className="mt-3 flex flex-col gap-2 w-full max-w-[150px]">
                   <button
@@ -1944,6 +1901,81 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
         </div>
       </div>
       <input type="file" ref={docInputRef} hidden onChange={handleFileChange} />
+
+      {/* Camera Modal Overlay */}
+      {isCameraLive && (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black/95 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="relative w-full h-full sm:h-auto sm:max-h-[90vh] sm:max-w-[550px] bg-black sm:rounded-3xl overflow-hidden shadow-2xl shadow-blue-900/20 border border-slate-800 flex flex-col">
+            {/* Header */}
+            <div className="absolute top-0 left-0 right-0 z-10 p-4 bg-gradient-to-b from-black/80 to-transparent flex justify-between items-center pointer-events-none">
+              <h3 className="text-white font-medium text-lg drop-shadow-md">Chụp ảnh 3x4</h3>
+              <button 
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); stopCamera(); }}
+                className="p-2 bg-black/40 hover:bg-red-500/80 rounded-full text-white backdrop-blur-md transition-all pointer-events-auto"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            {/* Video Container */}
+            <div className="relative w-full aspect-[3/4] bg-slate-900 flex items-center justify-center overflow-hidden">
+              <video 
+                ref={videoRef} 
+                autoPlay 
+                playsInline 
+                className="w-full h-full object-cover transform scale-x-[-1]" 
+              />
+              
+              {/* Overlay Passport Frame */}
+              <div className="absolute inset-0 pointer-events-none">
+                <svg className="w-full h-full" preserveAspectRatio="none">
+                  <defs>
+                    <mask id="face-hole">
+                      <rect width="100%" height="100%" fill="white" />
+                      <ellipse cx="50%" cy="42%" rx="28%" ry="33%" fill="black" />
+                    </mask>
+                  </defs>
+                  <rect width="100%" height="100%" fill="rgba(0,0,0,0.65)" mask="url(#face-hole)" />
+                  <ellipse cx="50%" cy="42%" rx="28%" ry="33%" fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth="2" strokeDasharray="8 8" />
+                  
+                  {/* Shoulders Guide */}
+                  <path d="M 15% 100% Q 50% 65% 85% 100%" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2" strokeDasharray="4 4" />
+                </svg>
+                
+                <div className="absolute bottom-28 left-0 right-0 flex justify-center">
+                  <div className="bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
+                    <p className="text-white/90 text-[13px] font-medium tracking-wide">
+                      Căn khuôn mặt vào vòng Oval
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Controls */}
+            <div className="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-black via-black/90 to-transparent flex justify-center items-center gap-8">
+              <button
+                onClick={(e) => { e.preventDefault(); stopCamera(); }}
+                className="w-12 h-12 flex items-center justify-center rounded-full bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white transition-all shadow-lg"
+              >
+                <X size={24} />
+              </button>
+              
+              <button
+                onClick={(e) => { e.preventDefault(); capturePhoto(e); }}
+                className="w-[72px] h-[72px] flex items-center justify-center rounded-full bg-white/20 p-1.5 hover:bg-white/30 transition-all group shadow-2xl"
+              >
+                <div className="w-full h-full bg-white rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.5)] group-hover:scale-95 transition-transform">
+                  <Camera size={32} className="text-blue-600" />
+                </div>
+              </button>
+              
+              <div className="w-12 h-12"></div> {/* Spacer */}
+            </div>
+          </div>
+        </div>
+      )}
+
       {renderDocsModal()}
       {renderLightbox()}
     </div>

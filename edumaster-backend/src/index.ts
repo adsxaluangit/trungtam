@@ -13,6 +13,35 @@ export default {
     async bootstrap({ strapi }: { strapi: any }) {
         console.log(' EduMaster BOOTSTRAP STARTING...');
 
+        // Optimize Database Indexes
+        try {
+            const knex = strapi.db.connection;
+            console.log(' EduMaster Creating Database Indexes for Performance...');
+            
+            // B-Tree Indexes
+            await knex.raw('CREATE INDEX IF NOT EXISTS idx_students_id_number ON students(id_number)');
+            await knex.raw('CREATE INDEX IF NOT EXISTS idx_students_created_at ON students(created_at)');
+            await knex.raw('CREATE INDEX IF NOT EXISTS idx_class_decisions_type ON class_decisions(type)');
+            await knex.raw('CREATE INDEX IF NOT EXISTS idx_cd_students_lnk_student_id ON class_decisions_students_lnk(student_id)');
+            await knex.raw('CREATE INDEX IF NOT EXISTS idx_cd_students_lnk_decision_id ON class_decisions_students_lnk(class_decision_id)');
+            await knex.raw('CREATE INDEX IF NOT EXISTS idx_stu_class_lnk_stu_id ON students_school_class_lnk(student_id)');
+            await knex.raw('CREATE INDEX IF NOT EXISTS idx_stu_class_lnk_cls_id ON students_school_class_lnk(school_class_id)');
+
+            // Trigram Indexes for ILIKE (Search)
+            try {
+                await knex.raw('CREATE EXTENSION IF NOT EXISTS pg_trgm');
+                await knex.raw('CREATE INDEX IF NOT EXISTS idx_students_full_name_trgm ON students USING gin (full_name gin_trgm_ops)');
+                await knex.raw('CREATE INDEX IF NOT EXISTS idx_students_id_number_trgm ON students USING gin (id_number gin_trgm_ops)');
+                console.log(' EduMaster Trigram Indexes created successfully.');
+            } catch (extErr) {
+                console.warn(' EduMaster Could not create pg_trgm extension/indexes:', (extErr as any).message);
+            }
+            
+            console.log(' EduMaster Database B-Tree Indexes created successfully.');
+        } catch (dbErr) {
+            console.error(' EduMaster Error creating DB indexes:', dbErr);
+        }
+
         try {
             // 1. Get the Authenticated Role
             const authenticatedRole = await strapi.query('plugin::users-permissions.role').findOne({ where: { type: 'authenticated' } });

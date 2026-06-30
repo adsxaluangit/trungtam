@@ -4,6 +4,7 @@ import { Camera, X, Upload, Save, CheckCircle, LogIn, Lock, User, ChevronDown, A
 import { Student } from '../types';
 
 import { fetchCategory, createCategory, COLLECTIONS, uploadFile, checkDuplicateStudent } from '../services/api';
+import { SearchableSelect, Option } from '../components/SearchableSelect';
 import { parseToISO } from '../utils/dateUtils';
 import { PROVINCES_LIST } from '../constants';
 
@@ -48,7 +49,6 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
     const [studentPhoto, setStudentPhoto] = useState<string | null>(null);
     const [cccdFront, setCccdFront] = useState<string | null>(null);
     const [cccdBack, setCccdBack] = useState<string | null>(null);
-    const [availableClasses, setAvailableClasses] = useState<any[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const [formData, setFormData] = useState({
@@ -134,23 +134,22 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
         }
     }, [formData.idNumber]);
 
-    // Load available classes from API
-    useEffect(() => {
-        const loadClasses = async () => {
-            try {
-                const classes = await fetchCategory(COLLECTIONS.CLASSES);
-                if (classes && classes.length > 0) {
-                    setAvailableClasses(classes);
-                } else {
-                    setAvailableClasses([]);
-                }
-            } catch (error) {
-                console.error("Failed to load classes", error);
-                setAvailableClasses([]);
-            }
-        };
-        loadClasses();
-    }, []);
+    // Fetch classes for dropdown
+    const fetchClassesForDropdown = async (search: string): Promise<Option[]> => {
+        let url = `${COLLECTIONS.CLASSES}?pagination[pageSize]=20`;
+        if (search) {
+           url += `&filters[$or][0][name][$containsi]=${encodeURIComponent(search)}&filters[$or][1][code][$containsi]=${encodeURIComponent(search)}`;
+        } else {
+           url += `&sort[0]=createdAt:desc`;
+        }
+        const data = await fetchCategory(url);
+        if (!data) return [];
+        return data.map((c: any) => ({
+            id: String(c.id || c.strapiId),
+            label: c.name ? `${c.code ? c.code + ' - ' : ''}${c.name}` : 'Không tên',
+            data: c
+        }));
+    };
 
     // Check for existing student when 12 digits ID is typed — and auto-fill form
     useEffect(() => {
@@ -619,39 +618,41 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
                                             </span>
                                         )}
                                     </label>
+                                    <div className="mb-3">
+                                        <SearchableSelect
+                                            value=""
+                                            onChange={(val, opt) => {
+                                                if (opt && opt.data) toggleClassSelection(opt.data);
+                                            }}
+                                            fetchOptions={fetchClassesForDropdown}
+                                            placeholder="Gõ để tìm và chọn lớp học..."
+                                        />
+                                    </div>
                                     <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                                        {availableClasses.map((cls: any) => {
+                                        {selectedClasses.map((cls: any) => {
                                             const clsId = String(cls.id || '');
-                                            const isSelected = selectedClasses.some(c => c.id === cls.id);
                                             const status = classCheckStatus[clsId];
                                             const isDuplicate = status === 'duplicate';
                                             const isChecking = status === 'checking';
                                             return (
                                                 <div
                                                     key={clsId}
-                                                    onClick={() => !isDuplicate && toggleClassSelection(cls)}
-                                                    className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all select-none ${
+                                                    className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all select-none ${
                                                         isDuplicate
-                                                            ? 'border-red-200 bg-red-50 cursor-not-allowed opacity-70'
-                                                            : isSelected
-                                                            ? 'border-blue-500 bg-blue-50 shadow-sm'
-                                                            : 'border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/30'
+                                                            ? 'border-red-200 bg-red-50 opacity-70'
+                                                            : 'border-blue-500 bg-blue-50 shadow-sm'
                                                     }`}
                                                 >
-                                                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all ${
-                                                        isDuplicate ? 'border-red-300 bg-red-100'
-                                                        : isSelected ? 'border-blue-500 bg-blue-500'
-                                                        : 'border-slate-300 bg-white'
-                                                    }`}>
-                                                        {isSelected && !isDuplicate && (
-                                                            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                                            </svg>
-                                                        )}
-                                                        {isDuplicate && <span className="text-red-500 text-xs font-bold">!</span>}
+                                                    <div 
+                                                        onClick={() => toggleClassSelection(cls)}
+                                                        className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 cursor-pointer transition-all border-blue-500 bg-blue-500 hover:bg-blue-600`}
+                                                    >
+                                                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                                        </svg>
                                                     </div>
                                                     <span className={`flex-1 text-sm font-medium ${
-                                                        isDuplicate ? 'text-red-600' : isSelected ? 'text-blue-800 font-bold' : 'text-slate-700'
+                                                        isDuplicate ? 'text-red-600' : 'text-blue-800 font-bold'
                                                     }`}>{cls.name}</span>
                                                     {isChecking && (
                                                         <span className="text-[10px] text-blue-400 animate-pulse shrink-0">Đang kiểm tra...</span>
@@ -659,9 +660,15 @@ const RegistrationView: React.FC<RegistrationViewProps> = ({ onLoginSuccess, ini
                                                     {isDuplicate && (
                                                         <span className="text-[10px] bg-red-100 text-red-600 font-bold px-1.5 py-0.5 rounded shrink-0">Đã ĐK</span>
                                                     )}
-                                                    {isSelected && !isDuplicate && status === 'ok' && (
+                                                    {!isDuplicate && status === 'ok' && (
                                                         <span className="text-[10px] bg-green-100 text-green-600 font-bold px-1.5 py-0.5 rounded shrink-0">✓ Hợp lệ</span>
                                                     )}
+                                                    <button 
+                                                        onClick={() => toggleClassSelection(cls)}
+                                                        className="text-slate-400 hover:text-red-500 transition-colors"
+                                                    >
+                                                        <X size={16} />
+                                                    </button>
                                                 </div>
                                             );
                                         })}

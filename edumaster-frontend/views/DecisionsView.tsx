@@ -3,6 +3,7 @@ import { Plus, X, List, Search, Trash2, Edit, UserPlus, Save, FileText, Calendar
 import JSZip from 'jszip';
 import { Student } from '../types';
 import { fetchCategory, fetchCategoryAll, createCategory, updateCategory, deleteCategory, COLLECTIONS, createLog, uploadFile } from '../services/api';
+import { SearchableSelect, Option } from '../components/SearchableSelect';
 import ExcelJS from 'exceljs';
 import { formatDate, parseToISO } from '../utils/dateUtils';
 import { downloadFile } from '../utils/fileUtils';
@@ -709,17 +710,33 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
     return ids;
   }, [decisions]);
 
-  const handleTypeLinkSelect = (selectedId: string) => {
+  const fetchClassesForDropdown = async (search: string): Promise<Option[]> => {
+    let url = `${COLLECTIONS.CLASSES}?pagination[pageSize]=20`;
+    if (search) {
+       url += `&filters[$or][0][name][$containsi]=${encodeURIComponent(search)}&filters[$or][1][code][$containsi]=${encodeURIComponent(search)}`;
+    } else {
+       url += `&sort[0]=createdAt:desc`;
+    }
+    const data = await fetchCategory(url);
+    if (!data) return [];
+    return data.map((c: any) => ({
+      id: String(c.documentId || c.id || c.strapiId),
+      label: c.name ? `${c.code ? c.code + ' - ' : ''}${c.name}` : 'Không tên',
+      data: c
+    }));
+  };
+
+  const handleTypeLinkSelect = (selectedId: string, optData?: any) => {
     if (!selectedId) {
       setTempStudents([]);
       return;
     }
 
     if (viewType === 'OPENING') {
-      // value from dropdown is c.id (numeric), find class by that
-      const selectedClass = availableClasses.find(c => String(c.id) === selectedId || String(c.strapiId) === selectedId);
+      // value from dropdown is c.id, find class by that or use optData
+      const selectedClass = optData || availableClasses.find(c => String(c.id) === selectedId || String(c.strapiId) === selectedId || String(c.documentId) === selectedId);
       if (selectedClass) {
-        const numericClassId = String(selectedClass.id || selectedClass.strapiId || '');
+        const numericClassId = String(selectedClass.id || selectedClass.strapiId || selectedClass.documentId || '');
         setFormData({
           ...formData,
           className: selectedClass.name || selectedClass.attributes?.name || '',
@@ -2441,7 +2458,7 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
           <td class="center no-border-left w-last-name">${last}</td>
           <td class="center"></td>
           <td class="center"></td>
-          <td class="left">${s.address || ''}</td>
+          <td class="left">${s.address || s.hometown || ''}</td>
         </tr>
       `;
 
@@ -2714,18 +2731,26 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
                 <label className="w-32 flex-shrink-0 text-left pl-4 text-[12px] text-slate-600 font-medium whitespace-nowrap uppercase">
                   {viewType === 'OPENING' ? 'Lớp Đào Tạo' : 'Theo QĐ Mở lớp'}<span className="text-red-500">*</span>:
                 </label>
-                <select
-                  value={viewType === 'OPENING' ? formData.classId : ''}
-                  onChange={e => handleTypeLinkSelect(e.target.value)}
-                  className="flex-1 border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] bg-white font-medium text-slate-700 outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="">-- Chọn --</option>
-                  {viewType === 'OPENING' ? (
-                    availableClasses.map(c => <option key={c.id} value={c.id}>{c.name || c.attributes?.name}</option>)
-                  ) : (
-                    getDecisionsWithGrades().map(d => <option key={d.id} value={d.id}>{d.className} ({d.number})</option>)
-                  )}
-                </select>
+                {viewType === 'OPENING' ? (
+                  <div className="flex-1">
+                    <SearchableSelect
+                      value={formData.classId || ''}
+                      onChange={(val, opt) => handleTypeLinkSelect(val, opt?.data)}
+                      fetchOptions={fetchClassesForDropdown}
+                      placeholder="-- Chọn --"
+                      defaultLabel={formData.className || ''}
+                    />
+                  </div>
+                ) : (
+                  <select
+                    value={formData.relatedOpeningId || ''}
+                    onChange={e => handleTypeLinkSelect(e.target.value)}
+                    className="flex-1 border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] bg-white font-medium text-slate-700 outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">-- Chọn --</option>
+                    {getDecisionsWithGrades().map(d => <option key={d.id} value={d.id}>{d.className} ({d.number})</option>)}
+                  </select>
+                )}
               </div>
             </div>
           </div>

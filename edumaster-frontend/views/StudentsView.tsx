@@ -969,7 +969,7 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
       <title>Phiếu đăng ký học</title>
       <style>
         @page {
-            size: A5 portrait;
+            size: A5 landscape;
             margin: 0;
         }
         body {
@@ -1635,7 +1635,13 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
         });
         if (res.ok) {
           const json = await res.json();
-          setSharedDocs(json.data || []);
+          const fetchedDocs = json.data || [];
+          const existingDocs = student?.documents || [];
+          
+          const allDocs = [...fetchedDocs, ...existingDocs];
+          const uniqueDocs = Array.from(new Map(allDocs.map(doc => [doc.id, doc])).values());
+          
+          setSharedDocs(uniqueDocs);
         } else {
           // Fallback về docs gắn với student record này
           setSharedDocs(student?.documents || []);

@@ -192,7 +192,8 @@ export const fetchCategory = async (collectionName: string) => {
 };
 
 export const fetchCategoryPaginated = async (collectionName: string, page: number = 1, pageSize: number = 50, filters: string = '', customParams: string = 'populate=*') => {
-    let endpoint = `/${collectionName}?${customParams}&pagination[page]=${page}&pagination[pageSize]=${pageSize}&publicationState=preview`;
+    const separator = collectionName.includes('?') ? '&' : '?';
+    let endpoint = `/${collectionName}${separator}${customParams ? customParams + '&' : ''}pagination[page]=${page}&pagination[pageSize]=${pageSize}&publicationState=preview`;
     if (filters) {
         endpoint += `&${filters}`;
     }
@@ -207,8 +208,11 @@ export const fetchCategoryPaginated = async (collectionName: string, page: numbe
 // Fetch all pages of a collection in parallel — use for small-to-medium collections needing full data
 // Uses large page size to minimize round trips
 export const fetchCategoryAll = async (collectionName: string, customParams: string = 'populate=*') => {
+    const separator = collectionName.includes('?') ? '&' : '?';
+    const paramsStr = customParams ? customParams + '&' : '';
+    
     // First request: get total count
-    const firstEndpoint = `/${collectionName}?${customParams}&pagination[page]=1&pagination[pageSize]=200&publicationState=preview`;
+    const firstEndpoint = `/${collectionName}${separator}${paramsStr}pagination[page]=1&pagination[pageSize]=200&publicationState=preview`;
     const firstJson = await strapiRequest(firstEndpoint);
     const total = firstJson?.meta?.pagination?.total || 0;
     const pageSize = 200;
@@ -223,7 +227,7 @@ export const fetchCategoryAll = async (collectionName: string, customParams: str
     const remainingRequests = [];
     for (let page = 2; page <= pageCount; page++) {
         remainingRequests.push(
-            strapiRequest(`/${collectionName}?${customParams}&pagination[page]=${page}&pagination[pageSize]=${pageSize}&publicationState=preview`)
+            strapiRequest(`/${collectionName}${separator}${paramsStr}pagination[page]=${page}&pagination[pageSize]=${pageSize}&publicationState=preview`)
         );
     }
     const remainingResults = await Promise.all(remainingRequests);

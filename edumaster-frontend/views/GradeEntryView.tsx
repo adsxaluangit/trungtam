@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Calculator, Save, BookOpen, Users, AlertCircle, CheckCircle2, X } from 'lucide-react';
-import { fetchCategory, createCategory, updateCategory, fetchItem, COLLECTIONS } from '../services/api';
+import { fetchCategory, fetchCategoryAll, createCategory, updateCategory, fetchItem, COLLECTIONS } from '../services/api';
 
 // Interfaces
 interface DecisionRecord {
@@ -76,8 +76,8 @@ const GradeEntryView: React.FC = () => {
         setLoading(true);
         try {
             const [decisionsData, subjectsData] = await Promise.all([
-                fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?populate[school_class]=true&populate[related_decision]=true&populate[students]=true`),
-                fetchCategory(COLLECTIONS.SUBJECTS)
+                fetchCategoryAll(`${COLLECTIONS.CLASS_DECISIONS}?populate[school_class]=true&populate[related_decision]=true&populate[students][count]=true`, ''),
+                fetchCategoryAll(COLLECTIONS.SUBJECTS, 'populate=*')
             ]);
 
             const allDecs = decisionsData || [];
@@ -108,8 +108,8 @@ const GradeEntryView: React.FC = () => {
                 classId: (d.school_class?.data?.documentId || d.school_class?.documentId || d.school_class?.data?.id || d.school_class?.id),
                 trainingCourse: d.training_course,
                 signedDate: d.signed_date,
-                studentCount: (d.students?.data?.length || d.students?.length || 0),
-                students: d.students,
+                studentCount: (d.students?.count ?? (d.students?.data?.length || d.students?.length || 0)),
+                students: [], // Save memory, don't keep full list
                 type: d.type
             }));
 
@@ -178,17 +178,24 @@ const GradeEntryView: React.FC = () => {
             setDecisionSubjects(classSubs);
 
             // 2. Fetch Students and filter out those already recognized
-            const allDecsForFilter = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?populate=students`);
+            const allDecsForFilter = await fetchCategoryAll(`${COLLECTIONS.CLASS_DECISIONS}?filters[type][$eq]=RECOGNITION&populate[students][fields][0]=id`, '');
             const recognizedInAny = new Set<string>();
-            allDecsForFilter?.filter((d: any) => d.type === 'RECOGNITION').forEach((d: any) => {
+            (allDecsForFilter || []).forEach((d: any) => {
                 const sData = d.students?.data || d.students || [];
                 sData.forEach((s: any) => recognizedInAny.add(String(s.documentId || s.id)));
             });
 
             let rawStudents = [];
-            const studentSrc = decision.students;
-            if (Array.isArray(studentSrc)) rawStudents = studentSrc;
-            else if (studentSrc?.data) rawStudents = studentSrc.data;
+            const decisionId = decision.documentId || decision.id;
+            const fullDecisionRaw = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?filters[documentId][$eq]=${decisionId}&populate[students][populate]=*`);
+            
+            if (fullDecisionRaw && fullDecisionRaw.length > 0) {
+                const fd = fullDecisionRaw[0];
+                if (fd.students) {
+                    if (Array.isArray(fd.students)) rawStudents = fd.students;
+                    else if (fd.students.data) rawStudents = fd.students.data;
+                }
+            }
 
             const mappedStudents: Student[] = rawStudents
                 .map((s: any) => ({

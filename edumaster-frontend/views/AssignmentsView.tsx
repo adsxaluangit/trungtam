@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { fetchCategory, fetchItem, createCategory, updateCategory, COLLECTIONS } from '../services/api';
+import { fetchCategory, fetchCategoryAll, fetchItem, createCategory, updateCategory, COLLECTIONS } from '../services/api';
 import { Calendar, Save, Printer, UserCheck, BookOpen, Clock, FileSpreadsheet, ChevronRight, CheckCircle2, Info, X, Edit, Users, RefreshCw, ClipboardList } from 'lucide-react';
 import ExcelJS from 'exceljs';
 
@@ -38,9 +38,9 @@ const AssignmentsView: React.FC = () => {
   const loadData = async () => {
     try {
       const [decisionsData, teachersData, subjectsData] = await Promise.all([
-        fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?populate[school_class]=true&populate[related_decision]=true&populate[students]=true`),
-        fetchCategory(COLLECTIONS.TEACHERS),
-        fetchCategory(COLLECTIONS.SUBJECTS)
+        fetchCategoryAll(`${COLLECTIONS.CLASS_DECISIONS}?populate[school_class]=true&populate[related_decision]=true&populate[students][count]=true`, ''),
+        fetchCategoryAll(COLLECTIONS.TEACHERS, 'populate=*'),
+        fetchCategoryAll(COLLECTIONS.SUBJECTS, 'populate=*')
       ]);
 
       // 1. Identify IDs of Opening decisions that already have a Recognition decision
@@ -69,8 +69,8 @@ const AssignmentsView: React.FC = () => {
           className: (d.school_class?.data?.attributes?.name || d.school_class?.name || d.school_class?.attributes?.name),
           classId: String(d.school_class?.documentId || d.school_class?.data?.documentId || d.school_class?.id || d.school_class?.data?.id || ''),
           signedDate: d.signed_date,
-          studentCount: (d.students?.data?.length || d.students?.length || 0),
-          students: (d.students?.data || d.students || []), // Preserve students list
+          studentCount: (d.students?.count ?? (d.students?.data?.length || d.students?.length || 0)),
+          students: [], // We don't need the student list here, we just need the count
           _debug_school_class: d.school_class // Add this for debugging
         }));
 

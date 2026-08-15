@@ -17,7 +17,7 @@ import {
     FileText,
     GraduationCap
 } from 'lucide-react';
-import { fetchCategory, createCategory, updateCategory, fetchItem, COLLECTIONS } from '../services/api';
+import { fetchCategory, fetchCategoryAll, createCategory, updateCategory, fetchItem, COLLECTIONS } from '../services/api';
 import { formatDate } from '../utils/dateUtils';
 
 const API_BASE_URL = process.env.API_URL ? process.env.API_URL.replace(/\/api\/?$/, '') : ''; // Use relative base for images
@@ -92,8 +92,8 @@ const ExamApprovalView: React.FC = () => {
         setLoading(true);
         try {
             const [decisionsData, subjectsData] = await Promise.all([
-                fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?populate[school_class]=true&populate[related_decision]=true&populate[students]=true`),
-                fetchCategory(COLLECTIONS.SUBJECTS)
+                fetchCategoryAll(`${COLLECTIONS.CLASS_DECISIONS}?populate[school_class]=true&populate[related_decision]=true&populate[students][count]=true`, ''),
+                fetchCategoryAll(COLLECTIONS.SUBJECTS, 'populate=*')
             ]);
 
             // 1. Identify IDs of Opening decisions that already have a Recognition decision
@@ -124,8 +124,8 @@ const ExamApprovalView: React.FC = () => {
                 className: (d.school_class?.data?.attributes?.name || d.school_class?.name || d.school_class?.attributes?.name),
                 classCode: (d.school_class?.data?.attributes?.code || d.school_class?.code || d.school_class?.attributes?.code || 'NO-CODE'),
                 classId: (d.school_class?.data?.documentId || d.school_class?.documentId || d.school_class?.data?.id || d.school_class?.id),
-                studentCount: (d.students?.data?.length || d.students?.length || 0),
-                students: d.students // Keep raw reference
+                studentCount: (d.students?.count ?? (d.students?.data?.length || d.students?.length || 0)),
+                students: [] // Keep raw reference empty for now to save memory
             }));
 
             setDecisions(validDecisions);

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Plus, X, List, Search, Trash2, Edit, UserPlus, Save, FileText, Calendar, Users, FileDown, GraduationCap, School, Paperclip, Upload, Printer, IdCard, FileSpreadsheet, History, Clock, ShieldCheck, ScrollText, Camera, Image as ImageIcon, Download, Loader2 } from 'lucide-react';
 import JSZip from 'jszip';
 import { Student } from '../types';
-import { fetchCategory, fetchCategoryAll, createCategory, updateCategory, deleteCategory, COLLECTIONS, createLog, uploadFile } from '../services/api';
+import { fetchCategory, fetchCategoryAll, fetchCategoryPaginated, createCategory, updateCategory, deleteCategory, COLLECTIONS, createLog, uploadFile } from '../services/api';
 import { SearchableSelect, Option } from '../components/SearchableSelect';
 import ExcelJS from 'exceljs';
 import { formatDate, parseToISO } from '../utils/dateUtils';
@@ -109,12 +109,20 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
   const ITEMS_PER_PAGE = 25;
+
+  const [availableOpeningDecisions, setAvailableOpeningDecisions] = useState<{id: string, className: string, number: string}[]>([]);
+  const [lockedOpeningIds, setLockedOpeningIds] = useState<Set<string>>(new Set());
 
   // Reset pagination when mode or search changes
   useEffect(() => {
     setCurrentPage(1);
   }, [viewType, mainSearchTerm]);
+
+  useEffect(() => {
+    loadDecisions();
+  }, [currentPage, viewType, mainSearchTerm]);
 
   const loadAuditLogs = async () => {
     // Fetch logs related to decisions if possible, or all logs
@@ -351,11 +359,8 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
     setError(null);
     try {
       await Promise.all([
-        loadDecisions(),
+        // loadDecisions() is triggered by useEffect on mount due to currentPage/viewType dependencies
         loadClasses(),
-        // NOTE: loadStudents() removed — we no longer pre-load ALL students at startup.
-        // At 500k records this would: send 500k rows over network, freeze browser rendering.
-        // Students are now loaded lazily per-class in handleTypeLinkSelect().
         loadExamGrades(),
         loadTemplates(),
         loadAssignments()
@@ -371,12 +376,24 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
   // Constant for full deep population of students when needed
   const DEEP_POPULATE_STUDENTS = `populate[school_class]=true&populate[related_decision]=true&populate[students][populate][documents][fields][0]=name&populate[students][populate][documents][fields][1]=url&populate[students][populate][documents][fields][2]=type&populate[students][fields][0]=full_name&populate[students][fields][1]=dob&populate[students][fields][2]=gender&populate[students][fields][3]=card_number&populate[students][fields][4]=id_number&populate[students][fields][5]=student_code&populate[students][fields][6]=pob&populate[students][fields][7]=photo&populate[students][fields][8]=address&populate[students][fields][9]=notes&populate[students][fields][10]=phone`;
 
+  const loadIdRef = React.useRef(0);
+
   const loadDecisions = async () => {
-    // Populate students basic fields (without deep relations like documents/photo) for list view to vastly improve load performance
-    // The full students details (photos, documents) will be lazy-loaded when opening the edit modal.
-    const data = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?sort[0]=signed_date:desc&sort[1]=id:desc&populate[school_class]=true&populate[related_decision]=true&populate[students]=true`);
-    if (data) {
-      const mapped = data.map((d: any, index: number) => {
+    const currentLoadId = ++loadIdRef.current;
+    setLoading(true);
+    let url = `${COLLECTIONS.CLASS_DECISIONS}?filters[type][$eq]=${viewType}&populate[school_class]=true&populate[related_decision]=true&populate[students]=true&sort[0]=signed_date:desc&sort[1]=id:desc`;
+
+    if (mainSearchTerm) {
+      url += `&filters[$or][0][decision_number][$containsi]=${encodeURIComponent(mainSearchTerm)}&filters[$or][1][training_course][$containsi]=${encodeURIComponent(mainSearchTerm)}&filters[$or][2][school_class][name][$containsi]=${encodeURIComponent(mainSearchTerm)}`;
+    }
+
+    const res = await fetchCategoryPaginated(url, currentPage, ITEMS_PER_PAGE, '', '');
+    
+    // Ignore stale responses to fix race condition
+    if (loadIdRef.current !== currentLoadId) return;
+
+    if (res) {
+      const mapped = res.data.map((d: any, index: number) => {
         const classData = d.school_class?.data || d.school_class;
         const studentsData = d.students?.data || d.students || [];
 
@@ -428,7 +445,30 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
         } as DecisionRecord;
       });
       setDecisions(mapped);
+      setTotalItems(res.meta.pagination.total);
+
+      // Fetch locked status for these specific OPENING decisions
+      if (viewType === 'OPENING' && mapped.length > 0) {
+        const ids = mapped.map((d: DecisionRecord) => d.id);
+        const idQueries = ids.map((id: string, idx: number) => `filters[related_decision][documentId][$in][${idx}]=${id}`).join('&');
+        const relData = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?filters[type][$eq]=RECOGNITION&${idQueries}&populate[related_decision]=true`);
+        const lockedSet = new Set<string>();
+        if (relData) {
+           relData.forEach((r: any) => {
+              const rd = r.related_decision?.data || r.related_decision;
+              if (rd) lockedSet.add(String(rd.documentId || rd.id));
+           });
+        }
+        setLockedOpeningIds(lockedSet);
+      } else {
+        setLockedOpeningIds(new Set());
+      }
+    } else {
+      setDecisions([]);
+      setTotalItems(0);
+      setLockedOpeningIds(new Set());
     }
+    setLoading(false);
   };
 
   const loadClasses = async () => {
@@ -482,7 +522,7 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
   };
 
   const loadExamGrades = async () => {
-    const data = await fetchCategory(COLLECTIONS.EXAM_GRADES);
+    const data = await fetchCategoryAll(`${COLLECTIONS.EXAM_GRADES}?populate=decision`, '');
     if (data) setExamGrades(data);
   };
 
@@ -605,113 +645,48 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
     }
   };
 
-  const filteredDecisions = decisions
-    .filter(d =>
-      d.type === viewType && (
-        (d.number || '').toLowerCase().includes(mainSearchTerm.toLowerCase()) ||
-        (d.className || '').toLowerCase().includes(mainSearchTerm.toLowerCase()) ||
-        (d.trainingCourse || '').toLowerCase().includes(mainSearchTerm.toLowerCase())
-      )
-    )
-    .map((d) => {
-      // Enrichment logic for Recognition mode
-      if (d.type === 'RECOGNITION' && d.relatedOpeningId) {
-        const relatedOpening = decisions.find(o => String(o.id) === d.relatedOpeningId);
-        if (relatedOpening) {
-          const gradeRecord = examGrades.find(eg => {
-            const did = eg.decision?.documentId || eg.decision?.id;
-            return String(did) === String(relatedOpening.id);
-          });
+  const filteredDecisions = decisions; // decisions are already paginated and filtered by the server
 
-          if (gradeRecord && gradeRecord.grades) {
-            const passingStudents: DecisionDetail[] = [];
-            const subjectGrades = gradeRecord.grades;
-            const classObj = availableClasses.find(c => String(c.id) === String(relatedOpening.classId));
-            const requiredSubjects = classObj?.subjects || [];
+  const loadAvailableOpeningDecisions = async (currentEditingId?: string) => {
+    const activeEditingId = currentEditingId !== undefined ? currentEditingId : editingId;
+    const allOpenings = await fetchCategoryAll(`${COLLECTIONS.CLASS_DECISIONS}?filters[type][$eq]=OPENING&populate[school_class]=true`, '');
+    const allRecognitions = await fetchCategoryAll(`${COLLECTIONS.CLASS_DECISIONS}?filters[type][$eq]=RECOGNITION&fields[0]=id&populate[related_decision]=true`, '');
+    const liveExamGrades = await fetchCategoryAll(`${COLLECTIONS.EXAM_GRADES}?populate=decision&fields[0]=id`, '');
+    
+    const linkedOpeningIds = new Set(
+      allRecognitions.map((d: any) => {
+        const rel = d.related_decision?.data || d.related_decision;
+        return rel ? String(rel.documentId || rel.id) : null;
+      }).filter(Boolean)
+    );
 
-            relatedOpening.students.forEach(s => {
-              let hasAllGrades = true;
-              if (requiredSubjects.length > 0) {
-                if (subjectGrades && typeof subjectGrades === 'object') {
-                  for (const subj of requiredSubjects) {
-                    const subId = String(subj.strapiId || subj.id);
-                    const sGrades = subjectGrades[subId]?.[s.studentCode];
-                    if (sGrades === undefined || sGrades === null || sGrades === '') {
-                      hasAllGrades = false;
-                      break;
-                    }
-                  }
-                } else {
-                  hasAllGrades = false;
-                }
-              }
-              if (hasAllGrades) passingStudents.push(s);
-            });
-            return { ...d, students: passingStudents };
-          }
-        }
-      }
-      return d;
-    })
-    .sort((a, b) => {
-      const dateA = new Date(a.signedDate || 0).getTime();
-      const dateB = new Date(b.signedDate || 0).getTime();
-
-      // Secondary sort: If dates are identical, use strapiId (numeric) to ensure latest created is on top
-      if (dateB === dateA) {
-        return (b.strapiId || 0) - (a.strapiId || 0);
-      }
-
-      return dateB - dateA;
-    })
-    .map((d, index) => ({ ...d, stt: index + 1 }));
-
-  const getDecisionsWithGrades = () => {
     const decisionIdsWithGrades = new Set<string>();
-    examGrades.forEach(eg => {
+    liveExamGrades.forEach((eg: any) => {
       const did = eg.decision?.documentId || eg.decision?.id || eg.decision?.data?.id || eg.decision?.data?.documentId;
       if (did) decisionIdsWithGrades.add(String(did));
     });
 
-    // Get IDs of all Opening decisions that are already linked to a Recognition decision
-    const linkedOpeningIds = new Set(
-      decisions
-        .filter(d => d.type === 'RECOGNITION')
-        .map(d => String(d.relatedOpeningId))
-        .filter(id => id && id !== 'undefined' && id !== 'null' && id !== '')
-    );
-
-    // Filter Opening decisions:
-    // 1. Must have exam grades
-    // 2. Either not linked to ANY recognition decision,
-    //    OR linked to the CURRENT decision we are editing.
-    return decisions.filter(d => {
-      if (d.type !== 'OPENING') return false;
-      if (!decisionIdsWithGrades.has(String(d.id))) return false;
-
-      const isUsedByAnother = linkedOpeningIds.has(String(d.id));
-
-      // If we're creating new, it must not be used at all
-      if (!editingId) return !isUsedByAnother;
-
-      // If we're editing, let's see if THIS decision is the one using it
-      const currentDecision = decisions.find(rd => rd.id === editingId);
-      const usedByThisOne = currentDecision?.relatedOpeningId && String(currentDecision.relatedOpeningId) === String(d.id);
-
-      return !isUsedByAnother || usedByThisOne;
+    const available = allOpenings.filter((d: any) => {
+       const id = String(d.documentId || d.id);
+       if (!decisionIdsWithGrades.has(id)) return false;
+       const isUsedByAnother = linkedOpeningIds.has(id);
+       if (!activeEditingId) return !isUsedByAnother;
+       const currentDecision = decisions.find(rd => rd.id === activeEditingId);
+       const usedByThisOne = currentDecision?.relatedOpeningId && String(currentDecision.relatedOpeningId) === id;
+       return !isUsedByAnother || usedByThisOne;
+    }).map((d: any) => {
+        const classData = d.school_class?.data || d.school_class;
+        return {
+          id: String(d.documentId || d.id),
+          className: classData?.attributes?.name || classData?.name || '',
+          number: d.decision_number || '',
+          classCode: classData?.attributes?.code || classData?.code || '',
+          trainingCourse: d.training_course || '',
+          classId: String(classData?.documentId || classData?.id || '')
+        };
     });
+    setAvailableOpeningDecisions(available);
   };
-
-  const assignedStudentIds = React.useMemo(() => {
-    const ids = new Set<string>();
-    decisions.forEach(d => {
-      // Students assigned to any OPENING decision should be excluded from future openings
-      if (d.type === 'OPENING' && d.students) {
-        d.students.forEach(s => ids.add(s.id));
-      }
-    });
-    return ids;
-  }, [decisions]);
 
   const fetchClassesForDropdown = async (search: string): Promise<Option[]> => {
     let url = `${COLLECTIONS.CLASSES}?pagination[pageSize]=20`;
@@ -781,7 +756,7 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
         });
       }
     } else {
-      const openingDecision = decisions.find(d => String(d.id) === selectedId);
+      const openingDecision = availableOpeningDecisions.find(d => String(d.id) === selectedId);
       if (openingDecision) {
         setFormData({
           ...formData,
@@ -881,14 +856,13 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
 
   const checkIfLocked = (id: string | null) => {
     if (!id || viewType !== 'OPENING') return false;
-    // Check if any RECOGNITION decision references this OPENING decision
-    return decisions.some(d => d.type === 'RECOGNITION' && String(d.relatedOpeningId) === String(id));
+    return lockedOpeningIds.has(String(id));
   };
 
   const handleSaveDecision = async () => {
     if (editingId && checkIfLocked(editingId)) {
-      alert("KHÔNG THỂ LƯU: Quyết định mở lớp này đã có Quyết định công nhận tương ứng. Vui lòng xóa Quyết định công nhận trước nếu cần thay đổi.");
-      return;
+      const confirmForce = window.confirm("CẢNH BÁO: Quyết định này đã có QĐ Công nhận tốt nghiệp. Việc sửa đổi dữ liệu (đặc biệt là danh sách học viên) có thể làm sai lệch dữ liệu điểm và chứng chỉ! Bạn có CHẮC CHẮN muốn LƯU đè không?");
+      if (!confirmForce) return;
     }
     if (!formData.number) {
       alert("Vui lòng nhập Số quyết định!");
@@ -897,11 +871,8 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
 
     // Validation: Check for duplicate training course codes within the same type
     if (formData.trainingCourse) {
-      const isDuplicate = decisions.some(d =>
-        d.type === viewType &&
-        d.trainingCourse.trim().toLowerCase() === formData.trainingCourse.trim().toLowerCase() &&
-        String(d.id) !== String(editingId)
-      );
+      const duplicateCheck = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?filters[type][$eq]=${viewType}&filters[training_course][$eq]=${encodeURIComponent(formData.trainingCourse)}`);
+      const isDuplicate = duplicateCheck && duplicateCheck.some((d: any) => String(d.documentId || d.id) !== String(editingId));
 
       if (isDuplicate) {
         alert(`Lỗi: Đợt/Khóa "${formData.trainingCourse}" đã tồn tại trong hệ thống quyết định ${viewType === 'OPENING' ? 'mở lớp' : 'công nhận'}. Vui lòng kiểm tra lại.`);
@@ -912,12 +883,12 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
     // --- Validation: Check Duplicate Decision Number in the same YEAR ---
     if (formData.number && formData.signedDate) {
       const currentYear = new Date(formData.signedDate).getFullYear();
-      const isDuplicateNumberInYear = decisions.some(d => {
-        if (!d.number || !d.signedDate) return false;
-        if (String(d.id) === String(editingId)) return false;
-
-        const decYear = new Date(d.signedDate).getFullYear();
-        return d.number.trim() === formData.number.trim() && decYear === currentYear;
+      const duplicateCheck = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?filters[decision_number][$eq]=${encodeURIComponent(formData.number)}`);
+      const isDuplicateNumberInYear = duplicateCheck && duplicateCheck.some((d: any) => {
+         if (String(d.documentId || d.id) === String(editingId)) return false;
+         if (!d.signed_date) return false;
+         const decYear = new Date(d.signed_date).getFullYear();
+         return decYear === currentYear;
       });
 
       if (isDuplicateNumberInYear) {
@@ -1186,18 +1157,19 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
 
   const handleUnlockDecision = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    // Tìm quyết định CÔNG NHẬN đang khóa quyết định MỞ LỚP này
-    const blockingDecision = decisions.find(d => d.type === 'RECOGNITION' && String(d.relatedOpeningId) === String(id));
-    if (!blockingDecision) return;
+    // Tìm quyết định CÔNG NHẬN đang khóa quyết định MỞ LỚP này trên server
+    const blockCheck = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?filters[type][$eq]=RECOGNITION&filters[related_decision][documentId][$eq]=${id}&fields[0]=decision_number`);
+    if (!blockCheck || blockCheck.length === 0) return;
+    const blockingDecision = blockCheck[0];
 
-    if (window.confirm(`Quyết định này đang bị khóa bởi Quyết định công nhận số: ${blockingDecision.number}.\n\nBạn có muốn XÓA Quyết định công nhận này để mở khóa và chỉnh sửa thông tin không?`)) {
+    if (window.confirm(`Quyết định này đang bị khóa bởi Quyết định công nhận số: ${blockingDecision.decision_number || 'Không rõ'}.\n\nBạn có muốn XÓA Quyết định công nhận này để mở khóa và chỉnh sửa thông tin không?`)) {
       try {
-        await deleteCategory(COLLECTIONS.CLASS_DECISIONS, blockingDecision.id);
+        await deleteCategory(COLLECTIONS.CLASS_DECISIONS, String(blockingDecision.documentId || blockingDecision.id));
         
         await createLog(
           'UNLOCK_DECISION',
           currentUser?.name || 'Unknown',
-          `Mở khóa QĐ Mở lớp bằng cách xóa QĐ Công nhận số ${blockingDecision.number}`,
+          `Mở khóa QĐ Mở lớp bằng cách xóa QĐ Công nhận số ${blockingDecision.decision_number}`,
           id
         );
 
@@ -1212,7 +1184,7 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
     if (e) e.stopPropagation();
     
     if (checkIfLocked(d.id) && !e) {
-      alert("Quyết định này đã bị khóa (Đã có QĐ Công nhận). Bạn chỉ có thể xem, không thể sửa.");
+      alert("LƯU Ý: Quyết định này đã có QĐ Công nhận. Hệ thống khuyến cáo không nên sửa. Nếu bạn vẫn muốn sửa, hãy cẩn thận vì nó ảnh hưởng đến QĐ Công nhận liên quan.");
     }
     
     setEditingId(d.id);
@@ -1224,6 +1196,9 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
     
     // Clear tempStudents initially while fetching full data
     setTempStudents([]);
+    if (d.type === 'RECOGNITION') {
+      loadAvailableOpeningDecisions(d.id);
+    }
     setIsFormOpen(true);
     setLoading(true);
 
@@ -1404,16 +1379,26 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
     }
   };
 
-  const handleOpenAddStudentModal = () => {
+  const handleOpenAddStudentModal = async () => {
     if (formData.classId) {
       setLoading(true);
+      const assignedData = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?filters[type][$eq]=OPENING&populate[students][fields][0]=id`);
+      const serverAssignedIds = new Set<string>();
+      if (assignedData) {
+        assignedData.forEach((d: any) => {
+          const studs = d.students?.data || d.students || [];
+          studs.forEach((s: any) => {
+            serverAssignedIds.add(String(s.documentId || s.id));
+            if (s.strapiId) serverAssignedIds.add(String(s.strapiId));
+          });
+        });
+      }
+
       loadStudentsByClass(formData.classId).then(classStudents => {
         // filter out unapproved AND currently assigned students to OTHER opening decisions
         const approvedStudents = classStudents.filter(s => {
           const isApproved = (s as any).isApproved === true;
-          // Note: When editing, assignedStudentIds currently includes the current decision's students too.
-          // BUT the add modal shouldn't show students that are already in tempStudents anyway.
-          const isAlreadyAssigned = assignedStudentIds.has(String(s.id)) || assignedStudentIds.has(String((s as any).strapiId));
+          const isAlreadyAssigned = serverAssignedIds.has(String(s.id)) || serverAssignedIds.has(String((s as any).strapiId));
           const isAlreadyInThisDecision = tempStudents.some(ts => String(ts.id) === String(s.id) || String(ts.id) === String((s as any).strapiId));
           return isApproved && (!isAlreadyAssigned || isAlreadyInThisDecision);
         });
@@ -2800,6 +2785,231 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
     printWindow.document.close();
   };
 
+  const handlePrintRegistrationForms = () => {
+    if (tempStudents.length === 0) {
+      alert("Không có học viên nào để in phiếu!");
+      return;
+    }
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert("Vui lòng cho phép Pop-ups trên trình duyệt để in phiếu.");
+      return;
+    }
+
+    const group = formData.trainingCourse || formData.className;
+    const formsHtml = tempStudents.map(student => {
+      let formattedDob = student.dob;
+      if (student.dob && student.dob.includes('-')) {
+        const parts = student.dob.split('-');
+        if (parts.length === 3) formattedDob = `${parts[2]}/${parts[1]}/${parts[0]}`;
+      } else if (student.dob && student.dob.includes(',')) {
+        formattedDob = student.dob.replace(/,/g, '/');
+      }
+
+      return `
+        <div class="page-break">
+          <div class="header-right">
+            ${student.photo ? '<img src="' + student.photo + '" alt="Ảnh 3x4" />' : 'Ảnh 3x4'}
+          </div>
+          
+          <div class="header-left">
+            <div class="agency">CỤC HÀNG HẢI VÀ ĐƯỜNG THUỶ VIỆT NAM</div>
+            <div class="school">TRƯỜNG CAO ĐẲNG HÀNG HẢI VÀ ĐƯỜNG THUỶ I</div>
+          </div>
+
+          <div class="title">PHIẾU ĐĂNG KÝ HỌC</div>
+
+          <div class="content">
+            <div class="info-row">
+              <span class="label">Họ và tên:</span>
+              <span class="value"><b>${(student.fullName || '').toUpperCase()}</b></span>
+            </div>
+            <div class="info-row" style="margin-bottom: -8px;">
+              <span class="label">Ngày, tháng, năm sinh:</span>
+              <span class="value">${formattedDob || ''}</span>
+            </div>
+
+            <div style="line-height: 1.1; margin-top: 0px;">
+              <div class="row-group-flex" style="margin-bottom: 0px;">
+                <span class="label">Nơi sinh:</span>
+                <span class="value" style="flex: 1.5">${student.hometown || ''}</span>
+                <span class="label" style="margin-left: 10px;">Số CCCD:</span>
+                <span class="value" style="flex: 1.5">${student.cardNumber || student.studentCode || ''}</span>
+              </div>
+              <div class="row-group-flex" style="margin-bottom: 0px;">
+                <span class="label">Dân tộc:</span>
+                <span class="value" style="flex: 1.5"></span>
+                <span class="label" style="margin-left: 10px;">Quốc tịch:</span>
+                <span class="value" style="flex: 1.5">Việt Nam</span>
+              </div>
+              <div class="info-row" style="margin-bottom: 0px;">
+                <span class="label">Số điện thoại liên lạc:</span>
+                <span class="value">${student.phone || ''}</span>
+              </div>
+              <div class="info-row" style="margin-bottom: 0px;">
+                <span class="label">Đơn vị công tác:</span>
+                <span class="value"></span>
+              </div>
+              <div class="info-row" style="margin-bottom: 0px;">
+                <span class="label">Địa chỉ thường trú:</span>
+                <span class="value">${student.address || ''}</span>
+              </div>
+              <div class="info-row" style="margin-bottom: 0px;">
+                <span class="label">Đăng ký học:</span>
+                <span class="value">${group || ''}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="signature-section" style="margin-right: 15mm; margin-top: 10px;">
+            <div class="signature-box">
+              <div class="role">Học viên (ký và ghi rõ họ tên)</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const htmlContent = `
+    <!DOCTYPE html>
+    <html lang="vi">
+    <head>
+      <meta charset="UTF-8">
+      <title>In Phiếu Đăng Ký Học - Khóa ${formData.trainingCourse}</title>
+      <style>
+        @page {
+            size: A5 landscape;
+            margin: 0;
+        }
+        body {
+          font-family: 'Times New Roman', Times, serif;
+          font-size: 12pt;
+          line-height: 1.25;
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+          background-color: #fff;
+          color: #000;
+        }
+        .page-break {
+          page-break-after: always;
+          padding: 1.5cm 1.5cm 1.5cm 2cm;
+          box-sizing: border-box;
+          height: 100vh;
+          position: relative;
+        }
+        .page-break:last-child {
+          page-break-after: auto;
+        }
+        .header-right {
+          float: right;
+          width: 3cm;
+          height: 4cm;
+          border: 1px solid #777;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: red;
+          font-size: 10pt;
+          overflow: hidden;
+          margin-left: 15px;
+          margin-bottom: 10px;
+        }
+        .header-right img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+        .header-left {
+          text-align: center;
+          font-size: 10pt;
+          margin-bottom: 15px;
+        }
+        .header-left .agency {
+          text-transform: uppercase;
+        }
+        .header-left .school {
+          text-transform: uppercase;
+          font-weight: bold;
+        }
+        .title {
+          text-align: center;
+          font-weight: bold;
+          font-size: 14pt;
+          margin: 0 0 15px 0;
+          text-transform: uppercase;
+        }
+        .info-row {
+          display: flex;
+          margin-bottom: 4px;
+        }
+        .info-row .label {
+          white-space: nowrap;
+          min-width: fit-content;
+        }
+        .info-row .value {
+          flex: 1;
+          margin-left: 5px;
+          margin-right: 5px;
+          display: flex;
+          align-items: flex-end;
+          padding-bottom: 2px;
+        }
+        .row-group-flex {
+          display: flex;
+          width: 100%;
+          margin-bottom: 2px;
+        }
+        .row-group-flex .label {
+          white-space: nowrap;
+          min-width: fit-content;
+        }
+        .row-group-flex .value {
+          margin-left: 5px;
+          display: flex;
+          align-items: flex-end;
+          padding-bottom: 2px;
+        }
+        .content {
+          margin-bottom: 10px;
+        }
+        .signature-section {
+          display: flex;
+          justify-content: flex-end;
+          margin-top: 5px;
+        }
+        .signature-box {
+          text-align: center;
+          width: 6cm;
+        }
+        .signature-box .role {
+          font-style: italic;
+        }
+        @media print {
+            body {
+                padding: 0;
+            }
+            .page-break {
+                padding-top: 1.5cm;
+                padding-left: 2cm;
+                padding-right: 1.5cm;
+                height: 148mm; /* A5 landscape height */
+                width: 210mm;  /* A5 landscape width */
+            }
+        }
+      </style>
+    </head>
+    <body onload="setTimeout(() => window.print(), 500)">
+      ${formsHtml}
+    </body>
+    </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
   const renderDecisionForm = () => (
     <div className="fixed inset-0 bg-black/60 z-[150] flex items-center justify-center p-4 backdrop-blur-sm">
       <div className="bg-white w-full max-w-7xl rounded-xl shadow-2xl overflow-hidden border border-slate-300 flex flex-col h-[92vh]">
@@ -2846,9 +3056,14 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
                 <ScrollText size={13} /> DS Đề nghị
               </button>
             ) : (
-              <button onClick={handlePrintStudentCards} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-700 hover:bg-indigo-600 text-white rounded-md text-[12px] font-semibold transition-colors">
-                <IdCard size={13} /> In thẻ
-              </button>
+              <>
+                <button onClick={handlePrintRegistrationForms} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-700 hover:bg-indigo-600 text-white rounded-md text-[12px] font-semibold transition-colors">
+                  <Printer size={13} /> In Phiếu ĐK
+                </button>
+                <button onClick={handlePrintStudentCards} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-700 hover:bg-indigo-600 text-white rounded-md text-[12px] font-semibold transition-colors">
+                  <IdCard size={13} /> In thẻ
+                </button>
+              </>
             )}
             {viewType === 'RECOGNITION' && (
               <button
@@ -2905,15 +3120,12 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
                   type="text"
                   value={formData.trainingCourse}
                   onChange={e => setFormData({ ...formData, trainingCourse: e.target.value })}
-                  onBlur={(e) => {
+                  onBlur={async (e) => {
                     const val = e.target.value.trim();
                     if (!val) return;
                     
-                    const isDuplicate = decisions.some(d => 
-                      d.type === viewType && 
-                      d.trainingCourse.trim().toLowerCase() === val.toLowerCase() &&
-                      String(d.id) !== String(editingId)
-                    );
+                    const duplicateCheck = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?filters[type][$eq]=${viewType}&filters[training_course][$eq]=${encodeURIComponent(val)}`);
+                    const isDuplicate = duplicateCheck && duplicateCheck.some((d: any) => String(d.documentId || d.id) !== String(editingId));
                     
                     if (isDuplicate) {
                       alert(`CẢNH BÁO: Đợt/Khóa "${val}" đã tồn tại trong hệ thống. Vui lòng kiểm tra lại để tránh trùng lặp.`);
@@ -2955,7 +3167,7 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
                     className="flex-1 border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] bg-white font-medium text-slate-700 outline-none focus:ring-1 focus:ring-blue-500"
                   >
                     <option value="">-- Chọn --</option>
-                    {getDecisionsWithGrades().map(d => <option key={d.id} value={d.id}>{d.className} ({d.number})</option>)}
+                    {availableOpeningDecisions.map(d => <option key={d.id} value={d.id}>{d.className} ({d.number})</option>)}
                   </select>
                 )}
               </div>
@@ -3495,6 +3707,9 @@ có ảnh</span>
                   location: FIXED_LOCATION, company: '', classType: '', classCode: '', className: '', trainingCourse: '', notes: '', classId: '', relatedOpeningId: '', startIndex: '1'
                 });
                 setTempStudents([]);
+                if (viewType === 'RECOGNITION') {
+                  loadAvailableOpeningDecisions();
+                }
                 setIsFormOpen(true);
               }}
               className={`${viewType === 'OPENING' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5 shadow-sm transition-all`}
@@ -3565,7 +3780,7 @@ có ảnh</span>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredDecisions.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((d, index) => (
+                  {filteredDecisions.map((d, index) => (
                     <tr
                       key={d.id}
                       className={`transition-all cursor-pointer group ${checkIfLocked(d.id) ? 'bg-slate-50/50 grayscale-[0.3]' : 'hover:bg-blue-50/40'}`}
@@ -3647,7 +3862,7 @@ có ảnh</span>
               </table>
             </div>
             <div className="bg-slate-50 px-8 py-4 border-t border-slate-100 flex justify-between items-center text-xs text-slate-400 font-bold uppercase tracking-widest">
-              <span>Tổng cộng: {filteredDecisions.length} quyết định</span>
+              <span>Tổng cộng: {totalItems} quyết định</span>
               <div className="flex items-center gap-4 lowercase font-medium tracking-normal">
                 <button 
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
@@ -3657,11 +3872,11 @@ có ảnh</span>
                   &laquo; Trước
                 </button>
                 <span className="text-slate-500">
-                  Trang <span className="text-blue-600 font-black">{currentPage}</span> / {Math.ceil(filteredDecisions.length / ITEMS_PER_PAGE) || 1}
+                  Trang <span className="text-blue-600 font-black">{currentPage}</span> / {Math.ceil(totalItems / ITEMS_PER_PAGE) || 1}
                 </span>
                 <button 
-                  onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredDecisions.length / ITEMS_PER_PAGE) || 1, p + 1))}
-                  disabled={currentPage === Math.ceil(filteredDecisions.length / ITEMS_PER_PAGE) || filteredDecisions.length === 0}
+                  onClick={() => setCurrentPage(p => Math.min(Math.ceil(totalItems / ITEMS_PER_PAGE) || 1, p + 1))}
+                  disabled={currentPage === Math.ceil(totalItems / ITEMS_PER_PAGE) || totalItems === 0}
                   className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
                 >
                   Sau &raquo;

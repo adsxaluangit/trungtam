@@ -266,6 +266,7 @@ const StatisticsView: React.FC = () => {
         completed.forEach(d => {
             const students = d.students || [];
             students.forEach((s: any) => {
+                // Handle Strapi v4/v5 nested or flattened structure
                 const student = s.attributes || s;
 
                 const name = student.full_name || student.fullName || student.name || '';
@@ -302,28 +303,104 @@ const StatisticsView: React.FC = () => {
         const wb = XLSX.utils.book_new();
         const ws = XLSX.utils.json_to_sheet(wsData);
 
+        // Set column widths
         ws['!cols'] = [
-            { wch: 5 },
-            { wch: 18 },
-            { wch: 28 },
-            { wch: 10 },
-            { wch: 14 },
-            { wch: 22 },
-            { wch: 12 },
-            { wch: 12 },
-            { wch: 18 },
-            { wch: 16 },
-            { wch: 32 },
-            { wch: 28 },
-            { wch: 32 },
-            { wch: 14 },
-            { wch: 12 },
-            { wch: 14 },
-            { wch: 24 },
+            { wch: 5 },  // STT
+            { wch: 18 }, // Mã HV
+            { wch: 28 }, // Họ và Tên
+            { wch: 10 }, // Giới tính
+            { wch: 14 }, // Ngày sinh
+            { wch: 22 }, // Nơi sinh
+            { wch: 12 }, // Dân tộc
+            { wch: 12 }, // Quốc tịch
+            { wch: 18 }, // CCCD
+            { wch: 16 }, // SĐT
+            { wch: 32 }, // Địa chỉ
+            { wch: 28 }, // Đơn vị
+            { wch: 32 }, // Lớp
+            { wch: 14 }, // Khóa
+            { wch: 12 }, // Số QĐ
+            { wch: 14 }, // Ngày ký
+            { wch: 24 }, // Ghi chú
         ];
 
         XLSX.utils.book_append_sheet(wb, ws, "TongHopHocVien");
         XLSX.writeFile(wb, `TongHopHocVien_${new Date().toISOString().split('T')[0]}.xlsx`);
+    };
+
+    const handleExportAllStudentsDecisions = () => {
+        if (filteredData.length === 0) {
+            alert("Không có dữ liệu trong bộ lọc hiện tại.");
+            return;
+        }
+
+        let wsData: any[] = [];
+        let stt = 1;
+
+        filteredData.forEach(d => {
+            const students = d.students || [];
+            students.forEach((s: any) => {
+                const student = s.attributes || s;
+
+                const name = student.full_name || student.fullName || student.name || '';
+                const dob = student.dob ? formatDate(student.dob) : '';
+                const cccd = student.id_number || student.idNumber || student.card_number || student.student_code || '';
+
+                wsData.push({
+                    'STT': stt++,
+                    'Mã học viên': student.student_code || student.studentCode || '',
+                    'Họ và Tên': name,
+                    'Giới tính': student.gender || '',
+                    'Ngày sinh': dob,
+                    'Nơi sinh': student.pob || '',
+                    'Dân tộc': student.ethnicity || '',
+                    'Quốc tịch': student.nationality || '',
+                    'Số CCCD/CMND': cccd,
+                    'Số điện thoại': student.phone || '',
+                    'Địa chỉ thường trú': student.address || '',
+                    'Đơn vị công tác': student.company || '',
+                    'Lớp học': d.className,
+                    'Đợt/Khóa': d.trainingCourse,
+                    'Số QĐ': d.number,
+                    'Ngày ký QĐ': d.signedDate ? formatDate(d.signedDate) : '',
+                    'Trạng thái': d.status === 'Completed' ? 'Đã tốt nghiệp' : 'Đang đào tạo',
+                    'Ghi chú': student.notes || ''
+                });
+            });
+        });
+
+        if (wsData.length === 0) {
+            alert("Không có dữ liệu học viên để xuất.");
+            return;
+        }
+
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(wsData);
+
+        // Set column widths
+        ws['!cols'] = [
+            { wch: 5 },  // STT
+            { wch: 18 }, // Mã HV
+            { wch: 28 }, // Họ và Tên
+            { wch: 10 }, // Giới tính
+            { wch: 14 }, // Ngày sinh
+            { wch: 22 }, // Nơi sinh
+            { wch: 12 }, // Dân tộc
+            { wch: 12 }, // Quốc tịch
+            { wch: 18 }, // CCCD
+            { wch: 16 }, // SĐT
+            { wch: 32 }, // Địa chỉ
+            { wch: 28 }, // Đơn vị
+            { wch: 32 }, // Lớp
+            { wch: 14 }, // Khóa
+            { wch: 12 }, // Số QĐ
+            { wch: 14 }, // Ngày ký
+            { wch: 18 }, // Trạng thái
+            { wch: 24 }, // Ghi chú
+        ];
+
+        XLSX.utils.book_append_sheet(wb, ws, "DS_HocVien_QuyetDinh");
+        XLSX.writeFile(wb, `DS_HocVien_Co_QuyetDinh_${new Date().toISOString().split('T')[0]}.xlsx`);
     };
 
     // --- Calculations for UI ---
@@ -450,7 +527,14 @@ const StatisticsView: React.FC = () => {
                         className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 transition-colors shadow-sm"
                     >
                         <Users size={16} />
-                        TH Học viên
+                        TH Học viên (Tốt nghiệp)
+                    </button>
+                    <button
+                        onClick={handleExportAllStudentsDecisions}
+                        className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-purple-700 transition-colors shadow-sm whitespace-nowrap"
+                    >
+                        <Users size={16} />
+                        Danh sách học viên đã có quyết định
                     </button>
                 </div>
             </div>

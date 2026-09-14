@@ -1,4 +1,3 @@
-
 import React from 'react';
 import {
   Users,
@@ -19,7 +18,9 @@ import {
   Award,
   ClipboardCheck,
   FilePenLine,
-  Search
+  Search,
+  Sparkles,
+  Key
 } from 'lucide-react';
 import { UserRole, NavItem } from './types';
 
@@ -47,6 +48,16 @@ export const NAVIGATION_ITEMS: NavItem[] = [
   { label: 'Tra cứu', path: 'lookup', icon: <Search size={20} />, roles: [UserRole.ADMIN, UserRole.MANAGER, UserRole.TEACHER] },
 ];
 
+export const PROVINCES_LIST: string[] = [
+  'An Giang', 'Bắc Ninh', 'Cà Mau', 'Cao Bằng', 'Đắk Lắk',
+  'Điện Biên', 'Đồng Nai', 'Đồng Tháp', 'Gia Lai', 'Hà Tĩnh',
+  'Hưng Yên', 'Khánh Hoà', 'Lai Châu', 'Lâm Đồng', 'Lạng Sơn',
+  'Lào Cai', 'Nghệ An', 'Ninh Bình', 'Phú Thọ', 'Quảng Ngãi',
+  'Quảng Ninh', 'Quảng Trị', 'Sơn La', 'Tây Ninh', 'Thái Nguyên',
+  'Thanh Hóa', 'TP. Cần Thơ', 'TP. Đà Nẵng', 'TP. Hà Nội', 'Hải Phòng',
+  'TP. Hồ Chí Minh', 'TP. Huế', 'Tuyên Quang', 'Vĩnh Long',
+];
+
 export const CATEGORY_TYPES = [
   { id: 'users', label: 'Người dùng', icon: <Users size={18} /> },
   { id: 'nations', label: 'Quốc gia', icon: <Globe size={18} /> },
@@ -58,14 +69,5 @@ export const CATEGORY_TYPES = [
   { id: 'teachers', label: 'Giảng viên', icon: <GraduationCap size={18} /> },
   { id: 'classes', label: 'Lớp học', icon: <BookOpen size={18} /> },
   { id: 'print_templates', label: 'Mẫu In', icon: <Printer size={18} /> },
-];
-
-export const PROVINCES_LIST: string[] = [
-  'An Giang', 'Bắc Ninh', 'Cà Mau', 'Cao Bằng', 'Đắk Lắk',
-  'Điện Biên', 'Đồng Nai', 'Đồng Tháp', 'Gia Lai', 'Hà Tĩnh',
-  'Hưng Yên', 'Khánh Hoà', 'Lai Châu', 'Lâm Đồng', 'Lạng Sơn',
-  'Lào Cai', 'Nghệ An', 'Ninh Bình', 'Phú Thọ', 'Quảng Ngãi',
-  'Quảng Ninh', 'Quảng Trị', 'Sơn La', 'Tây Ninh', 'Thái Nguyên',
-  'Thanh Hóa', 'TP. Cần Thơ', 'TP. Đà Nẵng', 'TP. Hà Nội', 'TP. Hải Phòng',
-  'TP. Hồ Chí Minh', 'TP. Huế', 'Tuyên Quang', 'Vĩnh Long',
+  { id: 'ai_config', label: 'Cấu hình AI', icon: <Sparkles size={18} /> },
 ];

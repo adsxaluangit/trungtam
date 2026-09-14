@@ -5,6 +5,7 @@ import { Plus, Edit2, Trash2, Search, X, GraduationCap, Phone, Mail, Book, BookM
 
 import { CATEGORY_TYPES } from '../constants';
 import PrintTemplatesView from './PrintTemplatesView'; // Import the view
+import AiConfigView from '../components/AiConfigView';
 // Added Subject to imports
 import { Teacher, Subject } from '../types';
 import { fetchCategory, createCategory, updateCategory, deleteCategory, publishDocument, COLLECTIONS } from '../services/api';
@@ -986,6 +987,26 @@ const CategoriesView: React.FC = () => {
           </div>
           <div className="flex-1 p-6">
             <PrintTemplatesView />
+          </div>
+        </div>
+      ) : activeTab === 'ai_config' ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col md:flex-row min-h-[600px] no-print">
+          <div className="w-full md:w-64 border-r border-slate-200 p-4 bg-slate-50/50">
+            <div className="space-y-1">
+              {CATEGORY_TYPES.map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setActiveTab(cat.id)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === cat.id ? 'bg-white text-blue-600 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-900'}`}
+                >
+                  {cat.icon}
+                  <span className="font-medium text-sm">{cat.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex-1 p-6">
+            <AiConfigView />
           </div>
         </div>
       ) : (

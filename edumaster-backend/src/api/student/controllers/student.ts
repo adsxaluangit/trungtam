@@ -14,14 +14,149 @@ export default factories.createCoreController('api::student.student', ({ strapi 
         return ctx.badRequest("No image provided");
       }
 
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey || apiKey.trim() === "") {
-        return ctx.badRequest("GEMINI_API_KEY is not configured.");
+      const knex = (strapi as any).db.connection;
+      let provider = 'gemini';
+      let geminiKey = process.env.GEMINI_API_KEY || '';
+      let nanoBananaKey = '';
+      let nanoBananaBaseUrl = 'https://api.nanobanana.com/v1';
+      let nanoBananaModel = 'nano-banana-vision';
+
+      try {
+        const hasTable = await knex.schema.hasTable('system_settings');
+        if (hasTable) {
+          const rows = await knex('system_settings').whereIn('key', [
+            'ai_provider',
+            'gemini_api_key',
+            'nano_banana_api_key',
+            'nano_banana_base_url',
+            'nano_banana_model'
+          ]);
+          const map: Record<string, string> = {};
+          rows.forEach((r: any) => { map[r.key] = r.value; });
+
+          if (map.ai_provider) provider = map.ai_provider;
+          if (map.gemini_api_key && map.gemini_api_key.trim()) geminiKey = map.gemini_api_key.trim();
+          if (map.nano_banana_api_key && map.nano_banana_api_key.trim()) nanoBananaKey = map.nano_banana_api_key.trim();
+          if (map.nano_banana_base_url && map.nano_banana_base_url.trim()) nanoBananaBaseUrl = map.nano_banana_base_url.trim();
+          if (map.nano_banana_model && map.nano_banana_model.trim()) nanoBananaModel = map.nano_banana_model.trim();
+        }
+      } catch (e) {
+        console.error('Error fetching AI config from system_settings:', e);
+      }
+
+      if (provider === 'nano_banana') {
+        if (!nanoBananaKey) {
+          return ctx.badRequest("API Key Nano Banana chưa được cấu hình. Vui lòng vào Quản lý danh mục -> Cấu hình AI.");
+        }
+
+        const promptText = `Hãy biến ảnh chụp thành ảnh kiểu hộ chiếu: BẮT BUỘC giữ nguyên tuyệt đối khuôn mặt và mái tóc giống y hệt ảnh gốc, BẮT BUỘC xóa phông nền cũ và thay bằng nền màu trắng tinh, BẮT BUỘC làm sáng vùng khuôn mặt — ánh sáng studio chiếu đều và đủ sáng lên toàn bộ mặt, tông màu da tự nhiên và sáng tươi, mặt sáng rõ nét, định dạng 3x4 cm, luôn luôn mặc áo véc (${gender === 'Nữ' || gender === 'female' ? 'áo sơ mi/vest nữ công sở' : 'áo véc, sơ mi trắng và đeo cà vạt'}).`;
+
+        const cleanBaseUrl = (nanoBananaBaseUrl || 'https://api.nanobananaapi.ai/api/v1').replace(/\/+$/, '');
+        const generateUrl = cleanBaseUrl.endsWith('/nanobanana') ? `${cleanBaseUrl}/generate` : `${cleanBaseUrl}/nanobanana/generate`;
+        const recordInfoUrl = cleanBaseUrl.endsWith('/nanobanana') ? `${cleanBaseUrl}/record-info` : `${cleanBaseUrl}/nanobanana/record-info`;
+
+        // Upload base64 to Catbox.moe for a temporary public URL
+        let publicUrl = originalImage;
+        if (originalImage.startsWith('data:image')) {
+          const mimeTypeMatch = originalImage.match(/^data:(image\/[a-zA-Z]+);base64,/);
+          const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/png';
+          const ext = mimeType.split('/')[1] || 'png';
+          const base64Data = originalImage.replace(/^data:image\/\w+;base64,/, '');
+
+          const fd = new FormData();
+          fd.append('reqtype', 'fileupload');
+          const buffer = Buffer.from(base64Data, 'base64');
+          const blob = new Blob([buffer], { type: mimeType });
+          fd.append('fileToUpload', blob, `photo.${ext}`);
+
+          const catboxRes = await fetch('https://catbox.moe/user/api.php', {
+            method: 'POST',
+            body: fd
+          });
+
+          if (!catboxRes.ok) {
+             return ctx.badRequest('Không thể upload ảnh trung gian. Vui lòng thử lại.');
+          }
+          publicUrl = await catboxRes.text();
+        }
+
+        // 1. Submit task to NanoBanana API
+        const apiRes = await fetch(generateUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${nanoBananaKey}`
+          },
+          body: JSON.stringify({
+            prompt: promptText,
+            type: 'IMAGETOIAMGE',
+            numImages: 1,
+            imageUrls: [publicUrl]
+          })
+        });
+
+        const initData: any = await apiRes.json().catch(() => ({}));
+
+        if (!apiRes.ok || (initData.code && initData.code !== 200)) {
+          const errMsg = initData.msg || initData.message || `HTTP ${apiRes.status}`;
+          return ctx.badRequest(`Nano Banana API error: ${errMsg}`);
+        }
+
+        const taskId = initData.data?.taskId;
+        if (!taskId) {
+          return ctx.badRequest("Nano Banana API không trả về taskId.");
+        }
+
+        // 2. Poll for completion (up to 30 attempts x 2s = 60s)
+        let processedImage = '';
+        for (let i = 0; i < 30; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+
+          const statusRes = await fetch(`${recordInfoUrl}?taskId=${taskId}`, {
+            headers: {
+              'Authorization': `Bearer ${nanoBananaKey}`
+            }
+          });
+
+          const statusData: any = await statusRes.json().catch(() => ({}));
+          const successFlag = statusData.data?.successFlag;
+
+          if (successFlag === 1) {
+            processedImage = statusData.data?.response?.resultImageUrl || statusData.data?.response?.resultImage || '';
+            break;
+          } else if (successFlag === 2 || successFlag === 3) {
+            return ctx.badRequest(statusData.data?.errorMessage || statusData.data?.msg || 'Tạo tác vụ thất bại');
+          }
+        }
+
+        if (!processedImage) {
+          return ctx.badRequest("Nano Banana API xử lý quá thời gian chờ (Timeout). Vui lòng thử lại.");
+        }
+
+        try {
+          if (processedImage.startsWith('http')) {
+            const imgRes = await fetch(processedImage);
+            if (imgRes.ok) {
+              const buffer = await imgRes.arrayBuffer();
+              const base64 = Buffer.from(buffer).toString('base64');
+              const mimeType = imgRes.headers.get('content-type') || 'image/jpeg';
+              processedImage = `data:${mimeType};base64,${base64}`;
+            }
+          }
+        } catch (e) {
+          console.error("Lỗi khi tải ảnh kết quả từ Nano Banana:", e);
+        }
+
+        return { processedImage };
+      }
+
+      if (!geminiKey || geminiKey.trim() === "") {
+        return ctx.badRequest("Gemini API Key chưa được cấu hình. Vui lòng vào Quản lý danh mục -> Cấu hình AI để dán API Key.");
       }
 
       const { GoogleGenAI } = await import('@google/genai');
       const aiClient = new GoogleGenAI({
-        apiKey: apiKey.trim(),
+        apiKey: geminiKey.trim(),
       });
 
       let mimeType = 'image/png';

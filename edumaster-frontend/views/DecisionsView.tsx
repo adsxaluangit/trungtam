@@ -114,6 +114,11 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
 
   const [availableOpeningDecisions, setAvailableOpeningDecisions] = useState<{id: string, className: string, number: string}[]>([]);
   const [lockedOpeningIds, setLockedOpeningIds] = useState<Set<string>>(new Set());
+  // Locked-view mode: open form read-only when decision is locked
+  const [isLockedViewMode, setIsLockedViewMode] = useState(false);
+  const [isLockedActionModalOpen, setIsLockedActionModalOpen] = useState(false);
+  const [lockedActionTargetId, setLockedActionTargetId] = useState<string | null>(null);
+  const [lockedActionDecisionNumber, setLockedActionDecisionNumber] = useState<string>('');
 
   // Reset pagination when mode or search changes
   useEffect(() => {
@@ -1157,26 +1162,42 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
 
   const handleUnlockDecision = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    // Tìm quyết định CÔNG NHẬN đang khóa quyết định MỞ LỚP này trên server
+    // Tìm số QĐ Công nhận đang khóa để hiển thị trong modal lựa chọn
     const blockCheck = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?filters[type][$eq]=RECOGNITION&filters[related_decision][documentId][$eq]=${id}&fields[0]=decision_number`);
     if (!blockCheck || blockCheck.length === 0) return;
     const blockingDecision = blockCheck[0];
+    setLockedActionDecisionNumber(blockingDecision.decision_number || 'Không rõ');
+    setLockedActionTargetId(id);
+    setIsLockedActionModalOpen(true);
+  };
 
-    if (window.confirm(`Quyết định này đang bị khóa bởi Quyết định công nhận số: ${blockingDecision.decision_number || 'Không rõ'}.\n\nBạn có muốn XÓA Quyết định công nhận này để mở khóa và chỉnh sửa thông tin không?`)) {
-      try {
-        await deleteCategory(COLLECTIONS.CLASS_DECISIONS, String(blockingDecision.documentId || blockingDecision.id));
-        
-        await createLog(
-          'UNLOCK_DECISION',
-          currentUser?.name || 'Unknown',
-          `Mở khóa QĐ Mở lớp bằng cách xóa QĐ Công nhận số ${blockingDecision.decision_number}`,
-          id
-        );
+  // Mở form ở chế độ chỉ xem/sửa thông tin HV (không xóa QĐ Công nhận)
+  const handleOpenLockedDecisionView = async (id: string) => {
+    setIsLockedActionModalOpen(false);
+    const d = decisions.find(dec => dec.id === id);
+    if (!d) return;
+    setIsLockedViewMode(true);
+    await handleOpenEditDecision(d);
+  };
 
-        loadDecisions();
-      } catch (e) {
-        alert("Mở khóa thất bại.");
-      }
+  // Xóa QĐ Công nhận để mở khóa hoàn toàn (luồng cũ)
+  const handleDeleteRecognitionToUnlock = async () => {
+    if (!lockedActionTargetId) return;
+    setIsLockedActionModalOpen(false);
+    const blockCheck = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?filters[type][$eq]=RECOGNITION&filters[related_decision][documentId][$eq]=${lockedActionTargetId}&fields[0]=decision_number`);
+    if (!blockCheck || blockCheck.length === 0) return;
+    const blockingDecision = blockCheck[0];
+    try {
+      await deleteCategory(COLLECTIONS.CLASS_DECISIONS, String(blockingDecision.documentId || blockingDecision.id));
+      await createLog(
+        'UNLOCK_DECISION',
+        currentUser?.name || 'Unknown',
+        `Mở khóa QĐ Mở lớp bằng cách xóa QĐ Công nhận số ${blockingDecision.decision_number}`,
+        lockedActionTargetId
+      );
+      loadDecisions();
+    } catch (e) {
+      alert("Mở khóa thất bại.");
     }
   };
 
@@ -3077,16 +3098,28 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
               </button>
             )}
             <div className="w-px h-5 bg-slate-600 mx-0.5"></div>
-            <button onClick={handleSaveDecision} className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white rounded-md text-[12px] font-semibold shadow-sm shadow-green-900/50 transition-colors">
-              <Save size={13} /> Lưu
-            </button>
-            <button onClick={() => setIsFormOpen(false)} className="p-1.5 hover:bg-slate-700 rounded-md transition-colors text-slate-400 hover:text-white">
+            {!isLockedViewMode && (
+              <button onClick={handleSaveDecision} className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white rounded-md text-[12px] font-semibold shadow-sm shadow-green-900/50 transition-colors">
+                <Save size={13} /> Lưu
+              </button>
+            )}
+            <button onClick={() => { setIsFormOpen(false); setIsLockedViewMode(false); }} className="p-1.5 hover:bg-slate-700 rounded-md transition-colors text-slate-400 hover:text-white">
               <X size={18} />
             </button>
           </div>
         </div>
 
         <div className="p-6 overflow-y-auto flex-1 bg-white space-y-4">
+          {/* Banner cảnh báo chế độ xem khi đã khóa */}
+          {isLockedViewMode && (
+            <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+              <ShieldCheck size={18} className="text-amber-600 shrink-0" />
+              <div>
+                <p className="text-[12px] font-bold text-amber-800">Chế độ Xem — Quyết định đã có QĐ Công nhận</p>
+                <p className="text-[11px] text-amber-600 mt-0.5">Thông tin quyết định bị khóa. Bạn chỉ có thể xem và sửa thông tin cá nhân từng học viên (bấm biểu tượng ✏️ ở cột Sửa).</p>
+              </div>
+            </div>
+          )}
           <div className="border border-slate-200 rounded p-4 relative pt-6 bg-slate-50/50 mt-2">
             <span className="absolute -top-3 left-4 bg-white px-2 text-[12px] font-bold text-blue-600 border border-blue-100 rounded shadow-sm">
               1. Thông tin chung
@@ -3098,7 +3131,8 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
                   type="text"
                   value={formData.number}
                   onChange={e => setFormData({ ...formData, number: e.target.value })}
-                  className="flex-1 border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] font-bold text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                  disabled={isLockedViewMode}
+                  className="flex-1 border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] font-bold text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                   placeholder="Nhập số QĐ"
                 />
               </div>
@@ -3109,7 +3143,8 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
                   type="text"
                   value={formData.signer}
                   onChange={e => setFormData({ ...formData, signer: e.target.value })}
-                  className="flex-1 border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] font-bold text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                  disabled={isLockedViewMode}
+                  className="flex-1 border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] font-bold text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                   placeholder="Họ tên người ký"
                 />
               </div>
@@ -3121,6 +3156,7 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
                   value={formData.trainingCourse}
                   onChange={e => setFormData({ ...formData, trainingCourse: e.target.value })}
                   onBlur={async (e) => {
+                    if (isLockedViewMode) return;
                     const val = e.target.value.trim();
                     if (!val) return;
                     
@@ -3131,7 +3167,8 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
                       alert(`CẢNH BÁO: Đợt/Khóa "${val}" đã tồn tại trong hệ thống. Vui lòng kiểm tra lại để tránh trùng lặp.`);
                     }
                   }}
-                  className="flex-1 border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                  disabled={isLockedViewMode}
+                  className="flex-1 border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] outline-none focus:ring-1 focus:ring-blue-500 bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                   placeholder="Đợt/Khóa"
                 />
               </div>
@@ -3142,7 +3179,8 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
                   type="date"
                   value={formData.signedDate}
                   onChange={e => setFormData({ ...formData, signedDate: e.target.value })}
-                  className="flex-1 border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                  disabled={isLockedViewMode}
+                  className="flex-1 border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] outline-none focus:ring-1 focus:ring-blue-500 bg-white disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                 />
               </div>
 
@@ -3152,19 +3190,29 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
                 </label>
                 {viewType === 'OPENING' ? (
                   <div className="flex-1">
-                    <SearchableSelect
-                      value={formData.classId || ''}
-                      onChange={(val, opt) => handleTypeLinkSelect(val, opt?.data)}
-                      fetchOptions={fetchClassesForDropdown}
-                      placeholder="-- Chọn --"
-                      defaultLabel={formData.className || ''}
-                    />
+                    {isLockedViewMode ? (
+                      <input
+                        type="text"
+                        value={formData.className || ''}
+                        disabled
+                        className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] font-bold text-slate-700 bg-slate-100 text-slate-500 cursor-not-allowed"
+                      />
+                    ) : (
+                      <SearchableSelect
+                        value={formData.classId || ''}
+                        onChange={(val, opt) => handleTypeLinkSelect(val, opt?.data)}
+                        fetchOptions={fetchClassesForDropdown}
+                        placeholder="-- Chọn --"
+                        defaultLabel={formData.className || ''}
+                      />
+                    )}
                   </div>
                 ) : (
                   <select
                     value={formData.relatedOpeningId || ''}
                     onChange={e => handleTypeLinkSelect(e.target.value)}
-                    className="flex-1 border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] bg-white font-medium text-slate-700 outline-none focus:ring-1 focus:ring-blue-500"
+                    disabled={isLockedViewMode}
+                    className="flex-1 border border-slate-300 rounded-sm px-2 py-1.5 text-[12px] bg-white font-medium text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                   >
                     <option value="">-- Chọn --</option>
                     {availableOpeningDecisions.map(d => <option key={d.id} value={d.id}>{d.className} ({d.number})</option>)}
@@ -3181,7 +3229,7 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
 
             <div className="flex justify-between items-center mb-3">
               <div className="text-[12px] font-black text-slate-400 uppercase tracking-widest pl-2">Danh sách chính thức</div>
-              {currentUser?.role === UserRole.ADMIN && (
+              {currentUser?.role === UserRole.ADMIN && !isLockedViewMode && (
                 <button
                   onClick={handleOpenAddStudentModal}
                   className="bg-slate-800 text-white px-4 py-1.5 rounded text-[11px] font-bold flex items-center gap-2 hover:bg-slate-700 transition-colors shadow-sm"
@@ -3252,7 +3300,9 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
                         </div>
                       </td>
                       <td className="px-4 py-2.5 text-center">
-                        <button onClick={() => removeStudentFromTemp(s.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"><Trash2 size={14} /></button>
+                        {!isLockedViewMode && (
+                          <button onClick={() => removeStudentFromTemp(s.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"><Trash2 size={14} /></button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -3270,6 +3320,63 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
     </div>
   );
 
+  const renderLockedActionModal = () => (
+    <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
+        {/* Header */}
+        <div className="bg-amber-500 text-white px-6 py-4 flex items-center gap-3">
+          <ShieldCheck size={22} />
+          <div>
+            <h3 className="text-[15px] font-bold">Quyết định đã được khóa</h3>
+            <p className="text-amber-100 text-[11px] mt-0.5">QĐ Công nhận số: <strong>{lockedActionDecisionNumber}</strong></p>
+          </div>
+        </div>
+        {/* Body */}
+        <div className="p-6 space-y-3">
+          <p className="text-sm text-slate-600 mb-4">Bạn muốn làm gì với quyết định mở lớp này?</p>
+
+          {/* Option 1: Xem & sửa thông tin HV */}
+          <button
+            onClick={() => lockedActionTargetId && handleOpenLockedDecisionView(lockedActionTargetId)}
+            className="w-full flex items-start gap-4 p-4 rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 hover:border-blue-400 transition-all text-left group"
+          >
+            <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+              <Edit size={18} className="text-white" />
+            </div>
+            <div>
+              <p className="text-[13px] font-bold text-blue-800">Xem & Sửa thông tin học viên</p>
+              <p className="text-[11px] text-blue-600 mt-0.5">Mở danh sách học viên để chỉnh sửa thông tin cá nhân (họ tên, ngày sinh, CCCD, ảnh...). Quyết định công nhận vẫn được giữ nguyên.</p>
+            </div>
+          </button>
+
+          {/* Option 2: Mở khóa hoàn toàn */}
+          <button
+            onClick={handleDeleteRecognitionToUnlock}
+            className="w-full flex items-start gap-4 p-4 rounded-xl border-2 border-red-200 bg-red-50 hover:bg-red-100 hover:border-red-400 transition-all text-left group"
+          >
+            <div className="w-10 h-10 rounded-full bg-red-500 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+              <Trash2 size={18} className="text-white" />
+            </div>
+            <div>
+              <p className="text-[13px] font-bold text-red-800">Mở khóa hoàn toàn (xóa QĐ Công nhận)</p>
+              <p className="text-[11px] text-red-600 mt-0.5">Xóa Quyết định công nhận số <strong>{lockedActionDecisionNumber}</strong> để mở khóa và chỉnh sửa tự do. Hành động này không thể hoàn tác.</p>
+            </div>
+          </button>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+          <button
+            onClick={() => setIsLockedActionModalOpen(false)}
+            className="px-5 py-2 text-sm font-bold text-slate-500 hover:bg-slate-200 rounded-lg transition-colors"
+          >
+            Hủy bỏ
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderEditStudentModal = () => {
     if (!editingStudentData) return null;
     return (
@@ -3277,7 +3384,7 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
         <div className="bg-white w-full max-w-xl rounded-xl shadow-2xl overflow-hidden border border-slate-300">
           <div className="bg-blue-700 text-white px-6 py-3 flex justify-between items-center">
             <h3 className="text-[14px] font-bold uppercase tracking-tight">Sửa thông tin học viên trong QĐ</h3>
-            <button onClick={() => { stopEditCamera(); setIsEditStudentModalOpen(false); }}><X size={18} /></button>
+            <button onClick={() => { stopEditCamera(); setIsEditStudentModalOpen(false); setEditingStudentIndex(null); setEditingStudentData(null); }}><X size={18} /></button>
           </div>
 
           <div className="p-5 bg-slate-50 space-y-4">
@@ -3784,9 +3891,16 @@ có ảnh</span>
                     <tr
                       key={d.id}
                       className={`transition-all cursor-pointer group ${checkIfLocked(d.id) ? 'bg-slate-50/50 grayscale-[0.3]' : 'hover:bg-blue-50/40'}`}
-                      onClick={() => {
+                      onClick={async () => {
                         if (checkIfLocked(d.id)) {
-                          alert("Quyết định này đã bị khóa (Đã có QĐ Công nhận). Bạn chỉ có thể xem, không thể sửa.");
+                          // Khi bấm vào row bị khóa: mở modal lựa chọn
+                          const blockCheck = await fetchCategory(`${COLLECTIONS.CLASS_DECISIONS}?filters[type][$eq]=RECOGNITION&filters[related_decision][documentId][$eq]=${d.id}&fields[0]=decision_number`);
+                          if (blockCheck && blockCheck.length > 0) {
+                            setLockedActionDecisionNumber(blockCheck[0].decision_number || 'Không rõ');
+                            setLockedActionTargetId(d.id);
+                            setIsLockedActionModalOpen(true);
+                          }
+                          return;
                         }
                         setEditingId(d.id);
                         setFormData({
@@ -3890,6 +4004,7 @@ có ảnh</span>
 
       {isAddStudentModalOpen && renderAddStudentModal()}
       {isEditStudentModalOpen && renderEditStudentModal()}
+      {isLockedActionModalOpen && renderLockedActionModal()}
       {renderDocsModal()}
       {renderGradeModal()}
 

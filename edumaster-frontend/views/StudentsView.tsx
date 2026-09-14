@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { FileSpreadsheet, RefreshCw, Trash2, Plus, Search, Filter, ChevronDown, X, Camera, Save, Calendar, User, Upload, Check, Phone, MapPin, Briefcase, Flag, School, Edit3, Image as ImageIcon, FileText, CheckCircle2, XCircle, ShieldCheck, Printer, Download } from 'lucide-react';
+import { FileSpreadsheet, RefreshCw, Trash2, Plus, Search, Filter, ChevronDown, X, Camera, Save, Calendar, User, Upload, Check, Phone, MapPin, Briefcase, Flag, School, Edit3, Image as ImageIcon, FileText, CheckCircle2, XCircle, ShieldCheck, Printer, Download, Eye } from 'lucide-react';
 import { Student } from '../types';
 import ExcelJS from 'exceljs';
 
@@ -190,7 +190,13 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
       } as any);
       setStudentPhoto(prefilledStudent.photo || null);
       // Store source documents to copy after save
-      setPrefilledStudentDocs(prefilledStudent.documents || []);
+      const docs = prefilledStudent.documents || [];
+      setPrefilledStudentDocs(docs);
+      
+      const front = docs.find((d: any) => d.name === 'CCCD Mặt trước')?.url || null;
+      const back = docs.find((d: any) => d.name === 'CCCD Mặt sau')?.url || null;
+      setPrefillDocs({ front, back });
+
       setEditingId(null);
       setIsFormOpen(true);
       if (onClearPrefill) onClearPrefill();
@@ -567,7 +573,10 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
       });
       
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || data.message || 'Lỗi xử lý ảnh');
+      if (!res.ok) {
+        const errorMsg = data.error?.message || (typeof data.error === 'string' ? data.error : '') || data.message || 'Lỗi xử lý ảnh';
+        throw new Error(errorMsg);
+      }
       
       if (data.processedImage) {
         const compressed = await compressAndResizeImage(data.processedImage, 900, 1200, 0.9);
@@ -883,7 +892,7 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
             date: new Date().toLocaleDateString('vi-VN'),
             url: finalDocUrl,
             student: studentObj?.strapiId || studentId, // Use numeric ID for relation
-            id_number: (studentObj as any)?.idNumber || '' // CCCD — dùng để chia sẻ docs qua nhiều lớp
+            id_number: (studentObj as any)?.idNumber || (studentObj as any)?.studentCode || '' // CCCD — dùng để chia sẻ docs qua nhiều lớp
           };
 
           // Gọi API replace-or-create: nếu đã có doc cùng tên + CCCD → cập nhật URL
@@ -1635,13 +1644,12 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
         });
         if (res.ok) {
           const json = await res.json();
-          const fetchedDocs = json.data || [];
-          const existingDocs = student?.documents || [];
-          
-          const allDocs = [...fetchedDocs, ...existingDocs];
-          const uniqueDocs = Array.from(new Map(allDocs.map(doc => [doc.id, doc])).values());
-          
-          setSharedDocs(uniqueDocs);
+          const apiDocs = json.data || [];
+          if (apiDocs.length > 0) {
+            setSharedDocs(apiDocs);
+          } else {
+            setSharedDocs(student?.documents || []);
+          }
         } else {
           // Fallback về docs gắn với student record này
           setSharedDocs(student?.documents || []);
@@ -1657,6 +1665,16 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
     }
   };
 
+  const handleOpenDoc = (doc: any) => {
+    if (!doc.url) return;
+    const isImage = doc.url.match(/\.(jpg|jpeg|png|webp|gif|bmp)(\?.*)?$/i) || doc.type?.startsWith('image/');
+    if (isImage) {
+      setZoomedImage(doc.url);
+    } else {
+      window.open(doc.url, '_blank');
+    }
+  };
+
   const renderDocsModal = () => {
     const student = students.find(s => s.id === viewingDocsStudentId);
     if (!student) return null;
@@ -1669,7 +1687,7 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
             <div>
               <h3 className="font-bold text-slate-700 text-sm">Hồ sơ đính kèm ({sharedDocsLoading ? '...' : docsToShow.length})</h3>
               {(student as any)?.idNumber && (
-                <p className="text-[10px] text-slate-400 mt-0.5">CCCD: {(student as any).idNumber} — hiển thị chung mọi lớp</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">CCCD: {(student as any).idNumber} — {student.fullName}</p>
               )}
             </div>
             <button onClick={() => { setViewingDocsStudentId(null); setSharedDocs([]); }} className="text-slate-400 hover:text-red-500"><X size={18} /></button>
@@ -1681,26 +1699,46 @@ const StudentsView: React.FC<StudentsViewProps> = ({ prefilledStudent, onClearPr
               <p className="text-center text-slate-400 py-8 text-xs italic">Chưa có hồ sơ nào</p>
             ) : (
               <div className="space-y-2">
-                {docsToShow.map((doc, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-md hover:border-blue-200 hover:shadow-sm group transition-all">
-                    <div className="flex items-center gap-3 overflow-hidden">
-                      <div className="w-8 h-8 rounded bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
-                        <FileText size={16} />
+                {docsToShow.map((doc, idx) => {
+                  const isImage = doc.url?.match(/\.(jpg|jpeg|png|webp|gif|bmp)(\?.*)?$/i) || doc.type?.startsWith('image/');
+                  return (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-md hover:border-blue-300 hover:shadow-sm group transition-all cursor-pointer"
+                      onClick={() => handleOpenDoc(doc)}
+                    >
+                      <div className="flex items-center gap-3 overflow-hidden flex-1 mr-2">
+                        <div className="w-9 h-9 rounded bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-100 transition-colors">
+                          {isImage ? <ImageIcon size={18} /> : <FileText size={18} />}
+                        </div>
+                        <div className="flex flex-col overflow-hidden">
+                          <span className="text-sm font-medium text-slate-700 truncate group-hover:text-blue-600 transition-colors" title={doc.name}>
+                            {doc.name}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            {doc.date} • {doc.type?.split('/')?.[1]?.toUpperCase() || (isImage ? 'IMAGE' : 'FILE')}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex flex-col overflow-hidden">
-                        <span className="text-sm font-medium text-slate-700 truncate" title={doc.name}>{doc.name}</span>
-                        <span className="text-[10px] text-slate-400">{doc.date} • {doc.type?.split('/')?.[1]?.toUpperCase() || 'FILE'}</span>
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => handleOpenDoc(doc)}
+                          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                          title={isImage ? "Xem ảnh" : "Mở file"}
+                        >
+                          <Eye size={16} />
+                        </button>
+                        <button 
+                          onClick={() => downloadFile(doc.url, doc.name)} 
+                          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors" 
+                          title="Tải xuống"
+                        >
+                          <Download size={16} />
+                        </button>
                       </div>
                     </div>
-                    <button 
-                      onClick={() => downloadFile(doc.url, doc.name)} 
-                      className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors" 
-                      title="Tải xuống"
-                    >
-                      <Upload size={16} className="rotate-180" />
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

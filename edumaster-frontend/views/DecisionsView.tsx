@@ -538,7 +538,20 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
 
   // --- Download Student Photos as ZIP (3x4 photos) ---
   const handleDownloadStudentPhotos = async () => {
-    const studentsWithPhotos = tempStudents.filter(s => s.photo && s.photo.trim() !== '');
+    // Lọc học viên có ảnh và sắp xếp theo tên A-Z (alphabet tiếng Việt)
+    const studentsWithPhotos = tempStudents
+      .filter(s => s.photo && s.photo.trim() !== '')
+      .sort((a, b) => {
+        // Lấy tên cuối (last word) của họ tên để sort theo vần
+        const getLastName = (name: string) => {
+          const parts = name.trim().split(/\s+/);
+          return parts[parts.length - 1] || '';
+        };
+        const cmp = getLastName(a.fullName).localeCompare(getLastName(b.fullName), 'vi', { sensitivity: 'base' });
+        if (cmp !== 0) return cmp;
+        // Nếu tên cuối giống nhau, so sánh toàn bộ họ tên
+        return a.fullName.localeCompare(b.fullName, 'vi', { sensitivity: 'base' });
+      });
 
     if (studentsWithPhotos.length === 0) {
       alert('Không có học viên nào trong danh sách có ảnh 3x4.');
@@ -649,6 +662,7 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
       setIsDownloadingPhotos(false);
     }
   };
+
 
   const filteredDecisions = decisions; // decisions are already paginated and filtered by the server
 
@@ -1707,6 +1721,184 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  // --- Xuất Excel Lịch Phân Công Huấn Luyện (RECOGNITION form) ---
+  const handleExportScheduleExcel = async () => {
+    const matchingAssignment = assignments.find((a: any) => {
+      let decRel = null;
+      if (typeof a.decision === 'object' && a.decision !== null) {
+        decRel = a.decision.data || a.decision;
+      }
+      if (!decRel) return false;
+      const decDocId = String(decRel.documentId || decRel.id || '');
+      const decNumId = String(decRel.id || decRel.strapiId || '');
+      const targetId = String(formData.relatedOpeningId);
+      return decDocId === targetId || decNumId === targetId;
+    });
+
+    if (!matchingAssignment || !matchingAssignment.schedule || matchingAssignment.schedule.length === 0) {
+      alert('Chưa có lịch phân công huấn luyện cho lớp này.\nVui lòng lập lịch trong mục "Phân công giảng dạy" trước.');
+      return;
+    }
+
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Lịch Phân Công');
+
+      worksheet.mergeCells('A1:C1');
+      worksheet.getCell('A1').value = 'TRƯỜNG CAO ĐẲNG';
+      worksheet.getCell('A1').font = { name: 'Times New Roman', size: 11 };
+      worksheet.getCell('A1').alignment = { horizontal: 'center' };
+
+      worksheet.mergeCells('D1:G1');
+      worksheet.getCell('D1').value = 'CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM';
+      worksheet.getCell('D1').font = { name: 'Times New Roman', size: 11, bold: true };
+      worksheet.getCell('D1').alignment = { horizontal: 'center' };
+
+      worksheet.mergeCells('A2:C2');
+      worksheet.getCell('A2').value = 'HÀNG HẢI VÀ ĐƯỜNG THỦY I';
+      worksheet.getCell('A2').font = { name: 'Times New Roman', size: 11 };
+      worksheet.getCell('A2').alignment = { horizontal: 'center' };
+
+      worksheet.mergeCells('D2:G2');
+      worksheet.getCell('D2').value = 'Độc lập – Tự do – Hạnh phúc';
+      worksheet.getCell('D2').font = { name: 'Times New Roman', size: 11, bold: true, italic: true };
+      worksheet.getCell('D2').alignment = { horizontal: 'center' };
+
+      worksheet.mergeCells('A3:C3');
+      worksheet.getCell('A3').value = 'TT ĐÀO TẠO PHÁT TRIỂN NGUỒN LỰC';
+      worksheet.getCell('A3').font = { name: 'Times New Roman', size: 11, bold: true };
+      worksheet.getCell('A3').alignment = { horizontal: 'center' };
+
+      worksheet.getRow(5).height = 24;
+      worksheet.mergeCells('A5:G5');
+      worksheet.getCell('A5').value = 'LỊCH PHÂN CÔNG HUẤN LUYỆN';
+      worksheet.getCell('A5').font = { name: 'Times New Roman', size: 14, bold: true };
+      worksheet.getCell('A5').alignment = { horizontal: 'center', vertical: 'middle' };
+
+      worksheet.getRow(6).height = 18;
+      worksheet.mergeCells('A6:G6');
+      const schedClassName = formData.className || '';
+      const schedCourse = formData.trainingCourse || '';
+      worksheet.getCell('A6').value = `Lớp: ${schedClassName.toUpperCase()}${schedCourse ? ` – Khóa: ${schedCourse}` : ''}`;
+      worksheet.getCell('A6').font = { name: 'Times New Roman', size: 12, bold: true };
+      worksheet.getCell('A6').alignment = { horizontal: 'center', vertical: 'middle' };
+
+      worksheet.columns = [
+        { key: 'stt',     width: 6  },
+        { key: 'date',    width: 14 },
+        { key: 'weekday', width: 10 },
+        { key: 'shift',   width: 10 },
+        { key: 'subject', width: 36 },
+        { key: 'teacher', width: 26 },
+        { key: 'notes',   width: 20 },
+      ];
+
+      worksheet.getRow(8).height = 30;
+      const headerRow = worksheet.getRow(8);
+      const headerLabels = ['STT', 'NGÀY', 'THỨ', 'CA HỌC', 'MÔN HỌC', 'GIẢNG VIÊN', 'GHI CHÚ'];
+      headerLabels.forEach((label, idx) => {
+        const cell = headerRow.getCell(idx + 1);
+        cell.value = label;
+        cell.font = { name: 'Times New Roman', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E5EA8' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        cell.border = {
+          top: { style: 'thin' }, left: { style: 'thin' },
+          bottom: { style: 'thin' }, right: { style: 'thin' }
+        };
+      });
+
+      const shiftOrder: Record<string, number> = { 'Sáng': 0, 'Chiều': 1, 'Tối': 2 };
+      const weekdayNames = ['Chủ nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
+
+      const sortedSchedule = [...matchingAssignment.schedule].sort((a: any, b: any) => {
+        if (a.date < b.date) return -1;
+        if (a.date > b.date) return 1;
+        return (shiftOrder[a.shift] ?? 99) - (shiftOrder[b.shift] ?? 99);
+      });
+
+      let schedCurrentRow = 9;
+      sortedSchedule.forEach((row: any, idx: number) => {
+        const dataRow = worksheet.getRow(schedCurrentRow);
+        dataRow.height = 18;
+
+        let dateDisplay = row.date || '';
+        if (row.date && row.date.includes('-')) {
+          const [y, m, d] = row.date.split('-');
+          dateDisplay = `${d}/${m}/${y}`;
+        }
+
+        let weekday = '';
+        if (row.date) {
+          try {
+            const dateObj = new Date(row.date + 'T00:00:00');
+            weekday = weekdayNames[dateObj.getDay()] || '';
+          } catch (_) { /* ignore */ }
+        }
+
+        dataRow.getCell(1).value = idx + 1;
+        dataRow.getCell(2).value = dateDisplay;
+        dataRow.getCell(3).value = weekday;
+        dataRow.getCell(4).value = row.shift || '';
+        dataRow.getCell(5).value = row.subjectName || '';
+        dataRow.getCell(6).value = row.teacherName || '';
+        dataRow.getCell(7).value = row.notes || '';
+
+        const fillArgb = idx % 2 === 0 ? 'FFFAFAFA' : 'FFE8F4FE';
+        for (let c = 1; c <= 7; c++) {
+          const cell = dataRow.getCell(c);
+          cell.font = { name: 'Times New Roman', size: 11 };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillArgb } };
+          cell.border = {
+            top: { style: 'thin' }, left: { style: 'thin' },
+            bottom: { style: 'thin' }, right: { style: 'thin' }
+          };
+          cell.alignment = c <= 4
+            ? { horizontal: 'center', vertical: 'middle' }
+            : { horizontal: 'left', vertical: 'middle', indent: 1 };
+        }
+        schedCurrentRow++;
+      });
+
+      schedCurrentRow++;
+      worksheet.mergeCells(`A${schedCurrentRow}:D${schedCurrentRow}`);
+      const totalCell = worksheet.getCell(`A${schedCurrentRow}`);
+      totalCell.value = `Tổng số buổi: ${sortedSchedule.length}`;
+      totalCell.font = { name: 'Times New Roman', size: 11, bold: true, italic: true };
+      totalCell.alignment = { horizontal: 'right', vertical: 'middle' };
+
+      schedCurrentRow += 2;
+      worksheet.mergeCells(`A${schedCurrentRow}:C${schedCurrentRow}`);
+      const footerLeft = worksheet.getCell(`A${schedCurrentRow}`);
+      footerLeft.value = 'NGƯỜI LẬP';
+      footerLeft.font = { name: 'Times New Roman', size: 11, bold: true };
+      footerLeft.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      worksheet.mergeCells(`E${schedCurrentRow}:G${schedCurrentRow}`);
+      const footerRight = worksheet.getCell(`E${schedCurrentRow}`);
+      footerRight.value = 'GIÁM ĐỐC TRUNG TÂM';
+      footerRight.font = { name: 'Times New Roman', size: 11, bold: true };
+      footerRight.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const safeFileName = (formData.trainingCourse || formData.className || 'Lop')
+        .replace(/[/\\?%*:|"<>]/g, '_');
+      link.download = `LichPhanCong_${safeFileName}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+    } catch (e) {
+      console.error('Export schedule excel failed:', e);
+      alert('Có lỗi khi xuất Excel lịch phân công. Vui lòng thử lại.');
+    }
   };
 
   const handlePrintDecision = () => {
@@ -3087,15 +3279,24 @@ const DecisionsView: React.FC<DecisionsViewProps> = ({ mode, currentUser }) => {
               </>
             )}
             {viewType === 'RECOGNITION' && (
-              <button
-                onClick={handleDownloadStudentPhotos}
-                disabled={isDownloadingPhotos}
-                title="Tải ảnh 3x4 của tất cả học viên về dưới dạng file ZIP"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-violet-700 hover:bg-violet-600 text-white rounded-md text-[12px] font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {isDownloadingPhotos ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-                Tải ảnh 3x4
-              </button>
+              <>
+                <button
+                  onClick={handleExportScheduleExcel}
+                  title="Xuất lịch phân công huấn luyện của lớp ra file Excel"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-teal-700 hover:bg-teal-600 text-white rounded-md text-[12px] font-semibold transition-colors"
+                >
+                  <FileSpreadsheet size={13} /> Lịch phân công
+                </button>
+                <button
+                  onClick={handleDownloadStudentPhotos}
+                  disabled={isDownloadingPhotos}
+                  title="Tải ảnh 3x4 của tất cả học viên về dưới dạng file ZIP"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-violet-700 hover:bg-violet-600 text-white rounded-md text-[12px] font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {isDownloadingPhotos ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                  Tải ảnh 3x4
+                </button>
+              </>
             )}
             <div className="w-px h-5 bg-slate-600 mx-0.5"></div>
             {!isLockedViewMode && (

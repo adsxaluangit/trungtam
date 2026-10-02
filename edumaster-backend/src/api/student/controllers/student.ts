@@ -1,4 +1,4 @@
-/**
+﻿/**
  * student controller
  */
 
@@ -49,7 +49,13 @@ export default factories.createCoreController('api::student.student', ({ strapi 
           return ctx.badRequest("API Key Nano Banana chưa được cấu hình. Vui lòng vào Quản lý danh mục -> Cấu hình AI.");
         }
 
-        const promptText = `Hãy biến ảnh chụp thành ảnh kiểu hộ chiếu: BẮT BUỘC giữ nguyên tuyệt đối khuôn mặt và mái tóc giống y hệt ảnh gốc, BẮT BUỘC xóa phông nền cũ và thay bằng nền màu trắng tinh, BẮT BUỘC làm sáng vùng khuôn mặt — ánh sáng studio chiếu đều và đủ sáng lên toàn bộ mặt, tông màu da tự nhiên và sáng tươi, mặt sáng rõ nét, định dạng 3x4 cm, luôn luôn mặc áo véc (${gender === 'Nữ' || gender === 'female' ? 'áo sơ mi/vest nữ công sở' : 'áo véc, sơ mi trắng và đeo cà vạt'}).`;
+        const isFemale = gender === 'Nữ' || gender === 'female' || gender === 'nu';
+        const outfitDesc = isFemale
+          ? 'mặc áo khoác véc nữ dài tay (women formal suit jacket / blazer) tối màu sang trọng khoác ngoài, bên trong là áo sơ mi trắng có cổ. Trang phục chỉ gồm đúng 2 lớp áo: áo sơ mi trắng bên trong và áo khoác véc bên ngoài. TUYỆT ĐỐI KHÔNG mặc áo gile, KHÔNG mặc áo vest lót không tay, KHÔNG áo gile len hay com-lê 3 mảnh (strictly NO waistcoat, NO gilet, NO sleeveless vest, NO 3-piece suit)'
+          : 'mặc áo khoác véc nam dài tay (men formal suit jacket / blazer) tối màu sang trọng khoác ngoài, bên trong là áo sơ mi trắng có cổ và thắt cà vạt. Trang phục chỉ gồm đúng 2 lớp áo: áo sơ mi trắng bên trong và áo khoác véc bên ngoài. TUYỆT ĐỐI KHÔNG mặc áo gile, KHÔNG mặc áo vest lót không tay, KHÔNG áo gile len hay com-lê 3 mảnh (strictly NO waistcoat, NO gilet, NO sleeveless vest, NO 3-piece suit)';
+
+        const promptText = `Hãy biến ảnh chụp thành ảnh kiểu hộ chiếu: BẮT BUỘC giữ nguyên tuyệt đối khuôn mặt và mái tóc giống y hệt ảnh gốc, BẮT BUỘC xóa phông nền cũ và thay bằng nền màu trắng tinh (pure white background), BẮT BUỘC làm sáng vùng khuôn mặt — ánh sáng studio chiếu đều và đủ sáng lên toàn bộ mặt, tông màu da tự nhiên và sáng tươi, mặt sáng rõ nét, định dạng 3x4 cm, ${outfitDesc}.`;
+
 
         const cleanBaseUrl = (nanoBananaBaseUrl || 'https://api.nanobananaapi.ai/api/v1').replace(/\/+$/, '');
         const generateUrl = cleanBaseUrl.endsWith('/nanobanana') ? `${cleanBaseUrl}/generate` : `${cleanBaseUrl}/nanobanana/generate`;
@@ -171,7 +177,13 @@ export default factories.createCoreController('api::student.student', ({ strapi 
         }
       }
 
-      const promptText = `Hãy biến ảnh chụp thành ảnh kiểu hộ chiếu: BẮT BUỘC giữ nguyên tuyệt đối khuôn mặt và mái tóc giống y hệt ảnh gốc (không chỉnh sửa quá đà hay làm khác đi so với ảnh gốc), BẮT BUỘC xóa phông nền cũ và thay bằng nền màu trắng tinh (pure white background), tông màu da tự nhiên, ánh sáng studio, định dạng 3x4 cm, kích thước 354 × 472 pixel (ở độ phân giải 350 DPI), luôn luôn mặc áo véc, sơ mi trắng và đeo cà vạt.`;
+        const isFemaleGemini = gender === 'N\u1eef' || gender === 'female' || gender === 'nu';
+        const outfitDescGemini = isFemaleGemini
+          ? 'm\u1eb7c \u00e1o s\u01a1 mi tr\u1eafng c\u00f3 c\u1ed5 b\u00ean trong, b\u00ean ngo\u00e0i m\u1eb7c \u00e1o v\u00e9c (suit jacket / blazer) t\u1ed1i m\u00e0u trang tr\u1ecdng d\u00e0i tay. T\u00f3c g\u1ecdn g\u00e0ng. TUY\u1ec6T \u0110\u1ed0I KH\u00d4NG m\u1eb7c th\u00eam \u00e1o gile/ghile, KH\u00d4NG c\u00f3 \u00e1o vest l\u00f3t kh\u00f4ng tay, KH\u00d4NG com-l\u00ea 3 m\u1ea3nh (strictly NO waistcoat, NO gilet, NO sleeveless vest).'
+          : 'm\u1eb7c \u00e1o s\u01a1 mi tr\u1eafng c\u00f3 c\u1ed5 b\u00ean trong, c\u1ed5 \u0111eo calavat (c\u00e0 v\u1ea1t), b\u00ean ngo\u00e0i m\u1eb7c \u00e1o v\u00e9c (suit jacket / blazer) t\u1ed1i m\u00e0u trang tr\u1ecdng d\u00e0i tay. T\u00f3c g\u1ecdn g\u00e0ng. TUY\u1ec6T \u0110\u1ed0I KH\u00d4NG m\u1eb7c th\u00eam \u00e1o gile/ghile, KH\u00d4NG c\u00f3 \u00e1o vest l\u00f3t kh\u00f4ng tay, KH\u00d4NG com-l\u00ea 3 m\u1ea3nh (strictly NO waistcoat, NO gilet, NO sleeveless vest).';
+
+        const promptText = `D\u1ef1a v\u00e0o khu\u00f4n m\u1eb7t trong \u1ea3nh g\u1ed1c \u0111\u01b0\u1ee3c \u0111\u00ednh k\u00e8m, h\u00e3y gi\u1eef nguy\u00ean c\u00e1c \u0111\u1eb7c \u0111i\u1ec3m nh\u1eadn d\u1ea1ng khu\u00f4n m\u1eb7t th\u1eadt c\u1ee7a ng\u01b0\u1eddi n\u00e0y. T\u1ea1o m\u1ed9t b\u1ee9c \u1ea3nh ch\u00e2n dung \u1ea3nh th\u1ebb k\u00edch th\u01b0\u1edbc t\u1ef7 l\u1ec7 3x4, ch\u1ee5p ch\u00ednh di\u1ec7n t\u1eeb ng\u1ef1c tr\u1edf l\u00ean, ph\u00f4ng n\u1ec1n m\u00e0u tr\u1eafng, \u00e1nh s\u00e1ng studio chuy\u00ean nghi\u1ec7p \u0111\u1ec1u, kh\u00f4ng b\u00f3ng \u0111\u1ed5 ph\u00eda sau. Ch\u1ee7 th\u1ec3 \ Bi\u1ec3u c\u1ea3m khu\u00f4n m\u1eb7t nghi\u00eam t\u00fac t\u1ef1 nhi\u00ean, nh\u00ecn th\u1eb3ng v\u00e0o m\u00e1y \u1ea3nh, ch\u1ea5t l\u01b0\u1ee3ng s\u1eafc n\u00e9t gi\u1ed1ng \u1ea3nh ch\u1ee5p studio th\u1ef1c t\u1ebf.`;
+
 
 
       const response = await aiClient.models.generateContent({

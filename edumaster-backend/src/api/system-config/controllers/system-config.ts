@@ -193,7 +193,7 @@ export default {
         });
 
         const response = await aiClient.models.generateContent({
-          model: 'gemini-3.8-flash',
+          model: 'gemini-3.1-flash-image',
           contents: 'Test connection. Please reply "OK".',
         });
 

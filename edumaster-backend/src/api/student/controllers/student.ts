@@ -102,9 +102,11 @@ export default factories.createCoreController('api::student.student', ({ strapi 
         });
 
         const initData: any = await apiRes.json().catch(() => ({}));
+        console.log("[NanoBanana] Generate request initData:", JSON.stringify(initData));
 
         if (!apiRes.ok || (initData.code && initData.code !== 200)) {
           const errMsg = initData.msg || initData.message || `HTTP ${apiRes.status}`;
+          console.error("[NanoBanana] Generate API error:", errMsg);
           return ctx.badRequest(`Nano Banana API error: ${errMsg}`);
         }
 
@@ -112,6 +114,7 @@ export default factories.createCoreController('api::student.student', ({ strapi 
         if (!taskId) {
           return ctx.badRequest("Nano Banana API không trả về taskId.");
         }
+        console.log(`[NanoBanana] Task created with ID: ${taskId}, publicUrl: ${publicUrl}`);
 
         // 2. Poll for completion (up to 30 attempts x 2s = 60s)
         let processedImage = '';
@@ -125,17 +128,20 @@ export default factories.createCoreController('api::student.student', ({ strapi 
           });
 
           const statusData: any = await statusRes.json().catch(() => ({}));
+          console.log(`[NanoBanana Poll ${i}]`, JSON.stringify(statusData));
           const successFlag = statusData.data?.successFlag;
 
           if (successFlag === 1) {
             processedImage = statusData.data?.response?.resultImageUrl || statusData.data?.response?.resultImage || '';
             break;
           } else if (successFlag === 2 || successFlag === 3) {
+            console.error(`[NanoBanana Error] Task failed:`, statusData.data?.errorMessage);
             return ctx.badRequest(statusData.data?.errorMessage || statusData.data?.msg || 'Tạo tác vụ thất bại');
           }
         }
 
         if (!processedImage) {
+          console.error(`[NanoBanana Error] Timeout for task ${taskId}`);
           return ctx.badRequest("Nano Banana API xử lý quá thời gian chờ (Timeout). Vui lòng thử lại.");
         }
 
@@ -187,7 +193,7 @@ export default factories.createCoreController('api::student.student', ({ strapi 
 
 
       const response = await aiClient.models.generateContent({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-3.1-flash-image',
         contents: {
           parts: [
             { inlineData: { data: base64Data, mimeType: mimeType } },

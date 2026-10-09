@@ -184,7 +184,7 @@ const AiConfigView: React.FC = () => {
                 {provider === 'gemini' && <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-ping" />}
               </div>
               <p className="text-slate-500 text-xs mt-1">
-                Sử dụng mô hình `gemini-2.5-flash-image` tốc độ cao, xử lý ảnh sắc nét.
+                Sử dụng mô hình `gemini-3.8-flash` tốc độ cao, xử lý ảnh sắc nét.
               </p>
               {geminiMaskedKey ? (
                 <span className="inline-block mt-2 text-[11px] font-mono bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-semibold">

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * student controller
  */
 
@@ -187,7 +187,7 @@ export default factories.createCoreController('api::student.student', ({ strapi 
 
 
       const response = await aiClient.models.generateContent({
-        model: 'gemini-2.5-flash-image',
+        model: 'gemini-3.8-flash',
         contents: {
           parts: [
             { inlineData: { data: base64Data, mimeType: mimeType } },

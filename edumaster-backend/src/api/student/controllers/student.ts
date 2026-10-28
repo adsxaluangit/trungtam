@@ -4,8 +4,21 @@
 
 import { factories } from '@strapi/strapi'
 
+// Retry fetch cho Gemini API khi gặp 503 (server quá tải)
+const geminiRetryFetch = async (url: string, options: RequestInit, maxRetries = 3): Promise<Response> => {
+  let lastRes: Response = await fetch(url, options);
+  for (let attempt = 2; attempt <= maxRetries; attempt++) {
+    if (lastRes.status !== 503) return lastRes;
+    const delay = (attempt - 1) * 2000; // 2s, 4s
+    console.warn(`[Gemini] 503 quá tải, thử lại ${attempt - 1}/${maxRetries - 1} sau ${delay}ms...`);
+    await new Promise(r => setTimeout(r, delay));
+    lastRes = await fetch(url, options);
+  }
+  return lastRes;
+};
 
 export default factories.createCoreController('api::student.student', ({ strapi }) => ({
+
 
   async processPhoto(ctx) {
     try {
@@ -166,11 +179,6 @@ export default factories.createCoreController('api::student.student', ({ strapi 
         return ctx.badRequest("Gemini API Key chưa được cấu hình. Vui lòng vào Quản lý danh mục -> Cấu hình AI để dán API Key.");
       }
 
-      const { GoogleGenAI } = await import('@google/genai');
-      const aiClient = new GoogleGenAI({
-        apiKey: geminiKey.trim(),
-      });
-
       let mimeType = 'image/png';
       let base64Data = originalImage;
       if (originalImage.startsWith('data:')) {
@@ -192,20 +200,28 @@ export default factories.createCoreController('api::student.student', ({ strapi 
 
 
 
-      const response = await aiClient.models.generateContent({
-        model: 'gemini-2.0-flash-preview-image-generation',
-        contents: {
-          parts: [
-            { inlineData: { data: base64Data, mimeType: mimeType } },
-            { text: promptText },
-          ],
-        },
+      // Goi thang REST API - khong dung SDK de tranh SDK tu alias model
+      const GEMINI_IMG_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey.trim()}`;
+      const imgRes = await geminiRetryFetch(GEMINI_IMG_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [
+            { inline_data: { mime_type: mimeType, data: base64Data } },
+            { text: promptText }
+          ]}],
+          generationConfig: { responseModalities: ['IMAGE', 'TEXT'] }
+        })
       });
-
+      const imgData: any = await imgRes.json();
+      if (!imgRes.ok) {
+        console.error('[processPhoto] Gemini API error:', JSON.stringify(imgData));
+        return ctx.internalServerError('Loi Gemini API: ' + (imgData?.error?.message || JSON.stringify(imgData?.error)));
+      }
       let processedUrl = null;
-      for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-          processedUrl = `data:image/png;base64,${part.inlineData.data}`;
+      for (const part of imgData?.candidates?.[0]?.content?.parts || []) {
+        if (part.inline_data) {
+          processedUrl = `data:image/png;base64,${part.inline_data.data}`;
           break;
         }
       }

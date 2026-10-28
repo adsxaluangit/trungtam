@@ -1,3 +1,19 @@
+
+// Gọi Gemini API với tự động retry khi gặp 503 (server quá tải)
+async function geminiRetryFetch(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
+  let lastRes: Response | null = null;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    lastRes = await fetch(url, options);
+    if (lastRes.status !== 503) return lastRes;
+    if (attempt < maxRetries) {
+      const delay = attempt * 2000; // 2s, 4s, 6s
+      console.warn(`[Gemini] 503 overloaded, retry ${attempt}/${maxRetries} sau ${delay}ms...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  return lastRes!;
+}
+
 export default {
   async getAiConfig(ctx: any) {
     try {
@@ -182,22 +198,32 @@ export default {
           reply: `Credits: ${credits}`
         };
       } else {
-        // Google Gemini
+        // Google Gemini — gọi thẳng REST API, không dùng SDK để tránh model aliasing
         if (!geminiKey || geminiKey.trim() === '') {
           return ctx.badRequest('Chưa có Gemini API Key để kiểm tra.');
         }
 
-        const { GoogleGenAI } = await import('@google/genai');
-        const aiClient = new GoogleGenAI({
-          apiKey: geminiKey.trim(),
+        const GEMINI_MODEL = 'gemini-3.8-flash';
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiKey.trim()}`;
+
+        const geminiRes = await geminiRetryFetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'Test connection. Please reply "OK".' }] }]
+          })
         });
 
-        const response = await aiClient.models.generateContent({
-          model: 'gemini-2.0-flash',
-          contents: 'Test connection. Please reply "OK".',
-        });
+        const geminiData = await geminiRes.json();
 
-        const text = response.text || '';
+        if (!geminiRes.ok) {
+          return {
+            success: false,
+            message: 'Kết nối thất bại: ' + JSON.stringify(geminiData?.error || geminiData)
+          };
+        }
+
+        const text = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
         return {
           success: true,
           message: 'Kết nối Google Gemini API thành công!',

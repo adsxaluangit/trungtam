@@ -11,3 +11,5 @@ edumaster-backend/build/
 *.log
 *.env
 dump.sql
+
+edumaster-backend/test-*.js

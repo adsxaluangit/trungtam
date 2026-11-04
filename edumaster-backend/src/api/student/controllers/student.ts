@@ -1,4 +1,4 @@
-/**
+﻿/**
  * student controller
  */
 
@@ -181,7 +181,27 @@ export default factories.createCoreController('api::student.student', ({ strapi 
 
       let mimeType = 'image/png';
       let base64Data = originalImage;
-      if (originalImage.startsWith('data:')) {
+
+      // Nếu là URL path (/uploads/...) hoặc URL đầy đủ (http...), fetch về và convert sang base64
+      if (originalImage.startsWith('/uploads/') || originalImage.startsWith('http://') || originalImage.startsWith('https://')) {
+        try {
+          let fetchUrl = originalImage;
+          if (originalImage.startsWith('/uploads/')) {
+            // Build local URL để fetch từ chính server Strapi
+            fetchUrl = `http://localhost:1337${originalImage}`;
+          }
+          const fetchRes = await fetch(fetchUrl);
+          if (!fetchRes.ok) {
+            return ctx.badRequest(`Không thể tải ảnh từ: ${originalImage} (${fetchRes.status})`);
+          }
+          const contentType = fetchRes.headers.get('content-type') || 'image/jpeg';
+          mimeType = contentType.split(';')[0].trim();
+          const buffer = await fetchRes.arrayBuffer();
+          base64Data = Buffer.from(buffer).toString('base64');
+        } catch (fetchErr: any) {
+          return ctx.badRequest(`Lỗi khi tải ảnh: ${fetchErr.message}`);
+        }
+      } else if (originalImage.startsWith('data:')) {
         const matches = originalImage.match(/^data:([^;]+);base64,(.+)$/);
         if (matches) {
           mimeType = matches[1];
@@ -196,12 +216,12 @@ export default factories.createCoreController('api::student.student', ({ strapi 
           ? 'm\u1eb7c \u00e1o s\u01a1 mi tr\u1eafng c\u00f3 c\u1ed5 b\u00ean trong, b\u00ean ngo\u00e0i m\u1eb7c \u00e1o v\u00e9c (suit jacket / blazer) t\u1ed1i m\u00e0u trang tr\u1ecdng d\u00e0i tay. T\u00f3c g\u1ecdn g\u00e0ng. TUY\u1ec6T \u0110\u1ed0I KH\u00d4NG m\u1eb7c th\u00eam \u00e1o gile/ghile, KH\u00d4NG c\u00f3 \u00e1o vest l\u00f3t kh\u00f4ng tay, KH\u00d4NG com-l\u00ea 3 m\u1ea3nh (strictly NO waistcoat, NO gilet, NO sleeveless vest).'
           : 'm\u1eb7c \u00e1o s\u01a1 mi tr\u1eafng c\u00f3 c\u1ed5 b\u00ean trong, c\u1ed5 \u0111eo calavat (c\u00e0 v\u1ea1t), b\u00ean ngo\u00e0i m\u1eb7c \u00e1o v\u00e9c (suit jacket / blazer) t\u1ed1i m\u00e0u trang tr\u1ecdng d\u00e0i tay. T\u00f3c g\u1ecdn g\u00e0ng. TUY\u1ec6T \u0110\u1ed0I KH\u00d4NG m\u1eb7c th\u00eam \u00e1o gile/ghile, KH\u00d4NG c\u00f3 \u00e1o vest l\u00f3t kh\u00f4ng tay, KH\u00d4NG com-l\u00ea 3 m\u1ea3nh (strictly NO waistcoat, NO gilet, NO sleeveless vest).';
 
-        const promptText = `D\u1ef1a v\u00e0o khu\u00f4n m\u1eb7t trong \u1ea3nh g\u1ed1c \u0111\u01b0\u1ee3c \u0111\u00ednh k\u00e8m, h\u00e3y gi\u1eef nguy\u00ean c\u00e1c \u0111\u1eb7c \u0111i\u1ec3m nh\u1eadn d\u1ea1ng khu\u00f4n m\u1eb7t th\u1eadt c\u1ee7a ng\u01b0\u1eddi n\u00e0y. T\u1ea1o m\u1ed9t b\u1ee9c \u1ea3nh ch\u00e2n dung \u1ea3nh th\u1ebb k\u00edch th\u01b0\u1edbc t\u1ef7 l\u1ec7 3x4, ch\u1ee5p ch\u00ednh di\u1ec7n t\u1eeb ng\u1ef1c tr\u1edf l\u00ean, ph\u00f4ng n\u1ec1n m\u00e0u tr\u1eafng, \u00e1nh s\u00e1ng studio chuy\u00ean nghi\u1ec7p \u0111\u1ec1u, kh\u00f4ng b\u00f3ng \u0111\u1ed5 ph\u00eda sau. Ch\u1ee7 th\u1ec3 \ Bi\u1ec3u c\u1ea3m khu\u00f4n m\u1eb7t nghi\u00eam t\u00fac t\u1ef1 nhi\u00ean, nh\u00ecn th\u1eb3ng v\u00e0o m\u00e1y \u1ea3nh, ch\u1ea5t l\u01b0\u1ee3ng s\u1eafc n\u00e9t gi\u1ed1ng \u1ea3nh ch\u1ee5p studio th\u1ef1c t\u1ebf.`;
+        const promptText = `Dựa vào khuôn mặt trong ảnh gốc được đính kèm, hãy giữ nguyên các đặc điểm nhận dạng khuôn mặt thật của người này. Tạo một bức ảnh chân dung ảnh thẻ kích thước tỷ lệ 3x4, chụp chính diện từ ngực trở lên, phông nền màu trắng, ánh sáng studio chuyên nghiệp đều, không bóng đổ phía sau. Chủ thể ${outfitDescGemini}. Biểu cảm khuôn mặt nghiêm túc tự nhiên, nhìn thẳng vào máy ảnh, chất lượng sắc nét giống ảnh chụp studio thực tế.`;
 
 
 
       // Goi thang REST API - khong dung SDK de tranh SDK tu alias model
-      const GEMINI_IMG_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${geminiKey.trim()}`;
+      const GEMINI_IMG_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent?key=${geminiKey.trim()}`;
       const imgRes = await geminiRetryFetch(GEMINI_IMG_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -220,8 +240,9 @@ export default factories.createCoreController('api::student.student', ({ strapi 
       }
       let processedUrl = null;
       for (const part of imgData?.candidates?.[0]?.content?.parts || []) {
-        if (part.inline_data) {
-          processedUrl = `data:image/png;base64,${part.inline_data.data}`;
+        if (part.inlineData || part.inline_data) {
+          const imgPart = part.inlineData || part.inline_data;
+          processedUrl = `data:${imgPart.mimeType || imgPart.mime_type || 'image/jpeg'};base64,${imgPart.data}`;
           break;
         }
       }
